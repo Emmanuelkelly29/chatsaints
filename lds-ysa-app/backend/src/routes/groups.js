@@ -1,0 +1,12 @@
+'use strict';
+const router = require('express').Router();
+const { createGroup, getGroupInfo, updateGroup, addMembers, removeMember, toggleAdmin } = require('../controllers/groupController');
+const { authenticate, requireApproved } = require('../middleware/auth');
+router.use(authenticate, requireApproved);
+router.post('/',                             createGroup);
+router.get('/:id',                           getGroupInfo);
+router.patch('/:id',                         updateGroup);
+router.post('/:id/members',                  addMembers);
+router.delete('/:id/members/:userId',        removeMember);
+router.patch('/:id/members/:userId/admin',   toggleAdmin);
+module.exports = router;

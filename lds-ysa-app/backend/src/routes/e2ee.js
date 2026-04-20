@@ -1,0 +1,11 @@
+'use strict';
+const router = require('express').Router();
+const { registerKeys, getKeys, getKeyStatus, uploadPreKeys, drainQueue } = require('../controllers/e2eeController');
+const { authenticate } = require('../middleware/auth');
+router.use(authenticate);
+router.post('/keys',              registerKeys);
+router.get('/keys/status',        getKeyStatus);
+router.post('/keys/prekeys',      uploadPreKeys);
+router.get('/keys/:userId',       getKeys);
+router.get('/queue',              drainQueue);
+module.exports = router;

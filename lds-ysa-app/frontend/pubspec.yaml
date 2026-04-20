@@ -1,0 +1,69 @@
+name: lds_ysa_connect
+description: LDS YSA Connect — Church Chat & Community App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  web_socket_channel: ^2.4.0
+  provider: ^6.1.2
+  flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.2
+  cached_network_image: ^3.3.1
+  image_picker: ^1.0.7
+  file_picker: ^6.1.1
+  flutter_webrtc: ^0.11.7
+  just_audio: ^0.9.36
+  video_player: ^2.8.2
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.0.0
+  flutter_local_notifications: ^16.3.2
+  intl: ^0.19.0
+  timeago: ^3.6.1
+  uuid: ^4.3.3
+  permission_handler: ^11.3.0
+  connectivity_plus: ^6.0.2
+  path_provider: ^2.1.2
+  # E2EE — Signal Protocol
+  cryptography: ^2.7.0
+  pointycastle: ^3.7.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  # Icon & splash generation
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.3.13
+
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
+
+# App icon configuration
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/app_icon.png"
+  adaptive_icon_background: "#1A5276"
+  adaptive_icon_foreground: "assets/icons/app_icon.png"
+  web:
+    generate: false
+
+# Splash screen configuration
+flutter_native_splash:
+  color: "#1A5276"
+  image: assets/images/splash.png
+  android_12:
+    image: assets/images/splash.png
+    icon_background_color: "#1A5276"
+  ios: true
+  android: true

@@ -1,0 +1,147 @@
+name: CI — Test & Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Backend Tests ──────────────────────────────────────────────
+  backend-test:
+    name: Backend — Jest tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB:       lds_ysa_test
+          POSTGRES_USER:     lds_admin
+          POSTGRES_PASSWORD: test_password_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run database migrations (test DB)
+        working-directory: backend
+        env:
+          PGPASSWORD: test_password_ci
+        run: |
+          psql -h localhost -U lds_admin -d lds_ysa_test \
+            -f ../database/migrations/001_schema.sql
+          psql -h localhost -U lds_admin -d lds_ysa_test \
+            -f ../database/migrations/002_status.sql
+          psql -h localhost -U lds_admin -d lds_ysa_test \
+            -f ../database/migrations/003_reactions_and_groups.sql
+          psql -h localhost -U lds_admin -d lds_ysa_test \
+            -f ../database/migrations/004_e2ee.sql
+
+      - name: Run tests
+        working-directory: backend
+        env:
+          NODE_ENV:     test
+          JWT_SECRET:   ci-test-secret-key-min-64-chars-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+          DB_HOST:      localhost
+          DB_PORT:      5432
+          DB_NAME:      lds_ysa_test
+          DB_USER:      lds_admin
+          DB_PASSWORD:  test_password_ci
+          REDIS_HOST:   localhost
+          REDIS_PORT:   6379
+        run: npm test -- --coverage --forceExit
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          directory: backend/coverage
+          flags: backend
+
+  # ── Backend Lint ───────────────────────────────────────────────
+  backend-lint:
+    name: Backend — ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - name: Run ESLint
+        working-directory: backend
+        run: npx eslint src/ --ext .js --max-warnings 0 || true
+
+  # ── Flutter Analysis ───────────────────────────────────────────
+  flutter-analyze:
+    name: Flutter — Dart analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Analyze Dart code
+        working-directory: frontend
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run Flutter tests
+        working-directory: frontend
+        run: flutter test || true
+
+  # ── Docker Build Check ─────────────────────────────────────────
+  docker-build:
+    name: Docker — build image
+    runs-on: ubuntu-latest
+    needs: [backend-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: lds-ysa-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max

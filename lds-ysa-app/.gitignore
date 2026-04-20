@@ -1,0 +1,54 @@
+# ── Node ──────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ── Environment / Secrets (NEVER commit real values) ──────────────
+.env
+.env.local
+.env.production
+.env.staging
+.env.*.local
+# .env.example is safe to commit — it contains only placeholders
+
+# ── Private Keys & Certificates ───────────────────────────────────
+*.pem
+*.key
+*.jks
+*.p8
+*.p12
+*.pfx
+*.cer
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
+firebase-service-account.json
+*-service-account.json
+*-credentials.json
+
+# ── Logs (may contain sensitive data) ─────────────────────────────
+logs/
+*.log
+backend/logs/
+
+# ── Uploads & Generated files ─────────────────────────────────────
+backend/uploads/
+backend/coverage/
+
+# ── Flutter ───────────────────────────────────────────────────────
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/build/
+frontend/.packages
+frontend/pubspec.lock
+
+# ── OS ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo

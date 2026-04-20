@@ -1,0 +1,298 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  MISSIONARY_MODE
+  SUSPENDED
+  RELEASED_MISSIONARY
+}
+
+enum UserRole {
+  YSA_MEMBER
+  YSA_REP
+  YSA_COUPLE_ADVISER
+  BISHOP
+  STAKE_PRESIDENT
+  DISTRICT_PRESIDENT
+  COORDINATING_COUNCIL_LEADER
+  AREA_AUTHORITY
+  AREA_PRESIDENCY
+  GENERAL_AUTHORITY
+  APOSTLE
+  FIRST_PRESIDENCY
+  MISSIONARY
+  MISSION_PRESIDENT
+  MISSION_PRESIDENT_WIFE
+}
+
+enum UnitType {
+  WARD
+  BRANCH
+  STAKE
+  DISTRICT
+  COORDINATING_COUNCIL
+  AREA
+  MISSION
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  FILE
+  DOCUMENT
+}
+
+enum CallType {
+  VOICE
+  VIDEO
+}
+
+enum CallStatus {
+  RINGING
+  ACTIVE
+  ENDED
+  MISSED
+  DECLINED
+}
+
+model ChurchArea {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  continent String
+  createdAt DateTime @default(now())
+
+  missions Mission[]
+  units    ChurchUnit[]
+  users    User[]
+}
+
+model Mission {
+  id        String     @id @default(uuid())
+  name      String     @unique
+  areaId    String
+  area      ChurchArea @relation(fields: [areaId], references: [id])
+  createdAt DateTime   @default(now())
+
+  missionaries        User[] @relation("MissionaryMission")
+  president           User?  @relation("MissionPresident")
+  presidentWife       User?  @relation("MissionPresidentWife")
+}
+
+model ChurchUnit {
+  id       String     @id @default(uuid())
+  name     String
+  type     UnitType
+  areaId   String?
+  area     ChurchArea? @relation(fields: [areaId], references: [id])
+  parentId String?
+  parent   ChurchUnit? @relation("UnitHierarchy", fields: [parentId], references: [id])
+  children ChurchUnit[] @relation("UnitHierarchy")
+  createdAt DateTime   @default(now())
+
+  users    User[]
+  ysaPool  YsaStakePool?
+}
+
+model User {
+  id                       String        @id @default(uuid())
+  phone                    String        @unique
+  email                    String?       @unique
+  firstName                String
+  lastName                 String
+  dateOfBirth              DateTime
+  gender                   String
+  profilePhoto             String?
+  role                     UserRole      @default(YSA_MEMBER)
+  accountStatus            AccountStatus @default(PENDING_APPROVAL)
+  isMarried                Boolean       @default(false)
+  fcmToken                 String?
+  maas360DeviceId          String?
+  unitId                   String?
+  unit                     ChurchUnit?   @relation(fields: [unitId], references: [id])
+  areaId                   String?
+  area                     ChurchArea?   @relation(fields: [areaId], references: [id])
+  missionId                String?
+  mission                  Mission?      @relation("MissionaryMission", fields: [missionId], references: [id])
+  missionStartDate         DateTime?
+  missionEndDate           DateTime?
+  missionPresidentOfId     String?       @unique
+  missionPresidentOf       Mission?      @relation("MissionPresident", fields: [missionPresidentOfId], references: [id])
+  missionPresidentWifeOfId String?       @unique
+  missionPresidentWifeOf   Mission?      @relation("MissionPresidentWife", fields: [missionPresidentWifeOfId], references: [id])
+  preMissionUnitId         String?
+  preMissionRole           UserRole?
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+  lastSeen                 DateTime?
+  approvedById             String?
+  approvedBy               User?         @relation("LeaderApproval", fields: [approvedById], references: [id])
+  approvedUsers            User[]        @relation("LeaderApproval")
+
+  ysaPoolMemberships       YsaPoolMember[]
+  sentMessages             Message[]     @relation("MessageSender")
+  conversations            ConversationParticipant[]
+  calls                    CallParticipant[]
+  pinnedChats              PinnedChat[]
+
+  @@index([phone])
+  @@index([role])
+  @@index([accountStatus])
+  @@index([missionId])
+}
+
+model YsaStakePool {
+  id        String     @id @default(uuid())
+  stakeId   String     @unique
+  stake     ChurchUnit @relation(fields: [stakeId], references: [id])
+  poolName  String
+  isOpen    Boolean    @default(false)
+  createdAt DateTime   @default(now())
+
+  members   YsaPoolMember[]
+}
+
+model YsaPoolMember {
+  id           String       @id @default(uuid())
+  poolId       String
+  pool         YsaStakePool @relation(fields: [poolId], references: [id])
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  approvedAt   DateTime     @default(now())
+  approvedById String?
+
+  @@unique([poolId, userId])
+}
+
+model Conversation {
+  id            String    @id @default(uuid())
+  isGroup       Boolean   @default(false)
+  name          String?
+  groupPhoto    String?
+  description   String?
+  maxMembers    Int       @default(1000)
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastMessageAt DateTime?
+  missionScoped Boolean   @default(false)
+  missionId     String?
+
+  participants  ConversationParticipant[]
+  messages      Message[]
+  pinnedBy      PinnedChat[]
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  isAdmin        Boolean      @default(false)
+  joinedAt       DateTime     @default(now())
+  lastReadAt     DateTime?
+  mutedUntil     DateTime?
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderId       String
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id])
+  type           MessageType  @default(TEXT)
+  content        String?
+  mediaUrl       String?
+  fileName       String?
+  fileSize       Int?
+  duration       Int?
+  replyToId      String?
+  replyTo        Message?     @relation("MessageReply", fields: [replyToId], references: [id])
+  replies        Message[]    @relation("MessageReply")
+  isDeleted      Boolean      @default(false)
+  deliveredAt    DateTime?
+  createdAt      DateTime     @default(now())
+
+  receipts       MessageReceipt[]
+}
+
+model MessageReceipt {
+  id          String   @id @default(uuid())
+  messageId   String
+  message     Message  @relation(fields: [messageId], references: [id])
+  userId      String
+  deliveredAt DateTime @default(now())
+  readAt      DateTime?
+
+  @@unique([messageId, userId])
+}
+
+model Call {
+  id             String          @id @default(uuid())
+  conversationId String?
+  type           CallType
+  status         CallStatus      @default(RINGING)
+  startedAt      DateTime        @default(now())
+  endedAt        DateTime?
+  duration       Int?
+
+  participants   CallParticipant[]
+}
+
+model CallParticipant {
+  id       String   @id @default(uuid())
+  callId   String
+  call     Call     @relation(fields: [callId], references: [id])
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  joinedAt DateTime @default(now())
+  leftAt   DateTime?
+
+  @@unique([callId, userId])
+}
+
+model PinnedChat {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  pinnedAt       DateTime     @default(now())
+
+  @@unique([userId, conversationId])
+}
+
+model Scripture {
+  id        String   @id @default(uuid())
+  book      String
+  chapter   Int
+  verse     Int
+  text      String
+  volume    String
+  reference String
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  body      String
+  data      Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}

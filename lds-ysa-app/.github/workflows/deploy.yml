@@ -1,0 +1,208 @@
+name: CD — Deploy to Production
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+
+# Only run one deployment at a time
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-backend:
+    name: Deploy backend to server
+    runs-on: ubuntu-latest
+    environment: production
+    # Only deploy on version tags or direct main pushes (not PRs)
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Push to Docker Hub or GitHub Container Registry
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/lds-ysa-backend:latest
+            ghcr.io/${{ github.repository_owner }}/lds-ysa-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      # SSH into production server and pull + restart
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key:      ${{ secrets.PROD_SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/lds-ysa-app
+
+            echo "Pulling latest images..."
+            docker compose pull backend
+
+            echo "Running database migrations..."
+            docker compose exec -T postgres psql -U lds_admin -d lds_ysa_db \
+              -f /docker-entrypoint-initdb.d/004_e2ee.sql || true
+
+            echo "Restarting backend..."
+            docker compose up -d --no-deps backend
+
+            echo "Waiting for health check..."
+            sleep 10
+            curl -f http://localhost:4000/health || exit 1
+
+            echo "Deployment successful!"
+
+            # Clean up old images
+            docker image prune -f
+
+  # ── Flutter Android Build ──────────────────────────────────────
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')  # Only on version tags
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Decode keystore
+        working-directory: frontend
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.jks
+          cat > android/key.properties << PROPS
+          storePassword=${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          keyPassword=${{ secrets.KEYSTORE_KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEYSTORE_KEY_ALIAS }}
+          storeFile=release.jks
+          PROPS
+
+      - name: Install Flutter dependencies
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Generate icons and splash
+        working-directory: frontend
+        run: |
+          flutter pub run flutter_launcher_icons
+          flutter pub run flutter_native_splash:create
+
+      - name: Build release APK
+        working-directory: frontend
+        run: flutter build apk --release --split-per-abi
+
+      - name: Build App Bundle (Play Store)
+        working-directory: frontend
+        run: flutter build appbundle --release
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ github.ref_name }}
+          path: |
+            frontend/build/app/outputs/flutter-apk/app-*-release.apk
+            frontend/build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
+
+  # ── Flutter iOS Build ──────────────────────────────────────────
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Build iOS release
+        working-directory: frontend
+        run: flutter build ios --release --no-codesign
+
+      - name: Archive IPA
+        working-directory: frontend
+        run: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -r LDSYSAConnect.ipa Payload/
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release-${{ github.ref_name }}
+          path: frontend/build/ios/iphoneos/LDSYSAConnect.ipa
+          retention-days: 30
+
+  # ── Create GitHub Release ──────────────────────────────────────
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, build-android]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-${{ github.ref_name }}
+          path: artifacts/android
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/android/**
+          generate_release_notes: true
+          body: |
+            ## LDS YSA Connect ${{ github.ref_name }}
+
+            ### What's new
+            See the full commit history for changes in this release.
+
+            ### Downloads
+            - `app-arm64-v8a-release.apk` — Android (64-bit, most phones)
+            - `app-armeabi-v7a-release.apk` — Android (32-bit, older phones)
+            - `app-release.aab` — Google Play Store bundle
+
+            ### Installation
+            For direct APK installation, enable "Unknown sources" in Android settings.
+            For Play Store distribution, upload the .aab file via Google Play Console.

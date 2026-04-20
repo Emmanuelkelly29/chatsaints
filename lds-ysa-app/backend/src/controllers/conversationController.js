@@ -131,4 +131,64 @@ const getPinnedConversations = async (req, res) => {
   } catch (err) { return res.status(500).json({ error: 'Failed' }); }
 };
 
-module.exports = { listConversations, createConversation, getMessages, pinConversation, unpinConversation, getPinnedConversations };
+// POST /api/conversations/1on1 — find or create a 1-on-1 conversation
+const findOrCreate1on1 = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { target_user_id } = req.body;
+    if (!target_user_id) return res.status(400).json({ error: 'target_user_id is required' });
+    if (target_user_id === userId) return res.status(400).json({ error: 'Cannot chat with yourself' });
+
+    // Check if 1-on-1 already exists
+    const existing = await query(
+      `SELECT c.id FROM conversations c
+       JOIN conversation_members cm1 ON c.id=cm1.conversation_id AND cm1.user_id=$1 AND cm1.left_at IS NULL
+       JOIN conversation_members cm2 ON c.id=cm2.conversation_id AND cm2.user_id=$2 AND cm2.left_at IS NULL
+       WHERE c.is_group=false
+       LIMIT 1`,
+      [userId, target_user_id]
+    );
+
+    if (existing.rows.length) {
+      // Return existing conversation with member info
+      const conv = await query(
+        `SELECT c.id,c.name,c.is_group,c.photo_url,c.created_at,
+                u.full_name as other_name, u.role as other_role, u.profile_photo_url as other_photo
+         FROM conversations c
+         JOIN conversation_members cm ON c.id=cm.conversation_id AND cm.user_id=$2 AND cm.left_at IS NULL
+         JOIN users u ON u.id=$2
+         WHERE c.id=$1`,
+        [existing.rows[0].id, target_user_id]
+      );
+      const row = conv.rows[0];
+      return res.json({
+        id: row.id, name: row.other_name, is_group: false,
+        photo_url: row.other_photo, role: row.other_role,
+        member_count: 2, created: false,
+      });
+    }
+
+    // Create new 1-on-1
+    const convId = uuidv4();
+    await query(
+      `INSERT INTO conversations (id,is_group,created_by) VALUES ($1,false,$2)`,
+      [convId, userId]
+    );
+    await query(
+      `INSERT INTO conversation_members (id,conversation_id,user_id,is_admin)
+       VALUES ($1,$2,$3,true),($4,$2,$5,false)`,
+      [uuidv4(), convId, userId, uuidv4(), target_user_id]
+    );
+
+    const target = await query('SELECT full_name,role,profile_photo_url FROM users WHERE id=$1', [target_user_id]);
+    const t = target.rows[0] || {};
+
+    return res.status(201).json({
+      id: convId, name: t.full_name, is_group: false,
+      photo_url: t.profile_photo_url, role: t.role,
+      member_count: 2, created: true,
+    });
+  } catch (err) { console.error(err); return res.status(500).json({ error: 'Failed to start conversation' }); }
+};
+
+module.exports = { listConversations, createConversation, getMessages, pinConversation, unpinConversation, getPinnedConversations, findOrCreate1on1 };

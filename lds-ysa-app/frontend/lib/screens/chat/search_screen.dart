@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../models/user_model.dart';
+import '../../models/conversation_model.dart';
 import '../../theme/app_theme.dart';
+import 'chat_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -94,8 +96,24 @@ class _SearchScreenState extends State<SearchScreen> {
                       trailing: u.stakeName != null
                           ? Text(u.stakeName!, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary))
                           : null,
-                      onTap: () {
-                        // TODO: open 1-on-1 chat or profile
+                      onTap: () async {
+                        try {
+                          final res = await _api.post('/conversations/1on1', {
+                            'target_user_id': u.id,
+                          });
+                          if (!mounted) return;
+                          final conv = ConversationModel.fromJson(res);
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)),
+                          );
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Could not start chat: $e')),
+                            );
+                          }
+                        }
                       },
                     );
                   },

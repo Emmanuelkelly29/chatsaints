@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../services/api_service.dart';
@@ -10,6 +11,7 @@ import '../../services/auth_service.dart';
 import '../../models/message_model.dart';
 import '../../models/conversation_model.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/constants.dart';
 import 'group_info_screen.dart';
 
 const _kEmojis = ['👍','❤️','😂','😮','😢','🙏','🔥','✅','👏','💙'];
@@ -108,32 +110,35 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMedia(String type) async {
     setState(() => _sending = true);
     try {
-      File? file;
+      XFile? xfile;
       if (type == 'image') {
-        final xf = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
-        if (xf != null) file = File(xf.path);
+        xfile = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
       } else if (type == 'video') {
-        final xf = await ImagePicker().pickVideo(source: ImageSource.gallery);
-        if (xf != null) file = File(xf.path);
+        xfile = await ImagePicker().pickVideo(source: ImageSource.gallery);
       } else {
-        final result = await FilePicker.platform.pickFiles(type: FileType.any);
-        if (result?.files.single.path != null) {
-          file = File(result!.files.single.path!);
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.any,
+          withData: kIsWeb,
+        );
+        if (result != null && result.files.isNotEmpty) {
+          final pf = result.files.single;
+          if (kIsWeb && pf.bytes != null) {
+            // Create XFile from bytes for web
+            xfile = XFile.fromData(pf.bytes!, name: pf.name);
+          } else if (pf.path != null) {
+            xfile = XFile(pf.path!);
+          }
         }
       }
 
-      if (file == null) return;
+      if (xfile == null) {
+        if (mounted) setState(() => _sending = false);
+        return;
+      }
 
-      final uploadRes = await _api.uploadFile('/media/upload', file);
+      final uploadRes = await _api.uploadXFile('/media/upload', xfile);
       final mediaUrl  = uploadRes['url'] as String;
 
-      _ws.sendMessage(
-        conversationId: widget.conversation.id,
-        content: type == 'image' ? 'Photo' : type == 'video' ? 'Video' : 'File',
-        messageType: type,
-        replyToMessageId: _replyTo?.id,
-      );
-      // Also send via WS with media_url
       _ws.send('send_message', {
         'conversation_id': widget.conversation.id,
         'content': type == 'image' ? '📷 Photo' : type == 'video' ? '🎥 Video' : '📎 File',
@@ -314,7 +319,10 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: TextField(
                 controller: _textCtrl,
-                onChanged: (_) => _ws.sendTyping(widget.conversation.id),
+                onChanged: (_) {
+                  setState(() {});  // Rebuild to toggle send/mic icon
+                  _ws.sendTyping(widget.conversation.id);
+                },
                 maxLines: null,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
@@ -332,11 +340,19 @@ class _ChatScreenState extends State<ChatScreen> {
             const SizedBox(width: 8),
             // Send / mic button
             GestureDetector(
-              onTap: _textCtrl.text.trim().isEmpty ? null : _sendText,
+              onTap: _textCtrl.text.trim().isEmpty
+                  ? () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Voice messages coming soon')),
+                      );
+                    }
+                  : _sendText,
               child: Container(
                 padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  color: AppTheme.accent,
+                decoration: BoxDecoration(
+                  color: _textCtrl.text.trim().isEmpty
+                      ? AppTheme.accent.withOpacity(0.6)
+                      : AppTheme.accent,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -379,7 +395,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Navigator.pop(context);
             final xf = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 80);
             if (xf != null) {
-              final res = await _api.uploadFile('/media/upload', File(xf.path));
+              final res = await _api.uploadXFile('/media/upload', xf);
               _ws.send('send_message', {
                 'conversation_id': widget.conversation.id,
                 'content': '📷 Photo',
@@ -469,9 +485,33 @@ class _MessageBubble extends StatelessWidget {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: Image.network(
-                        message.mediaUrl!,
+                        message.mediaUrl!.startsWith('http')
+                            ? message.mediaUrl!
+                            : '${AppConstants.baseUrl}${message.mediaUrl!}',
                         width: 200, height: 140, fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 60),
+                      ),
+                    )
+                  else if (message.mediaUrl != null && message.type == 'video')
+                    GestureDetector(
+                      onTap: () {
+                        final url = message.mediaUrl!.startsWith('http')
+                            ? message.mediaUrl!
+                            : '${AppConstants.baseUrl}${message.mediaUrl!}';
+                        launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                      },
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          width: 200, height: 140,
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Center(
+                            child: Icon(Icons.play_circle_fill, color: Colors.white, size: 56),
+                          ),
+                        ),
                       ),
                     )
                   else if (message.type == 'voice_note')

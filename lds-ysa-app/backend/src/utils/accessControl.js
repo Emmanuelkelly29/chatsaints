@@ -56,8 +56,10 @@ const canViewProfile = (viewer, target) => {
     return (ROLE_TIER[viewer.role] || 0) >= (ROLE_TIER[target.role] || 0);
   }
 
-  // General rule: viewer can see anyone at or below their own tier
-  return (ROLE_TIER[viewer.role] || 0) >= (ROLE_TIER[target.role] || 0);
+  // YSA members can see leaders above them (bishops, stake presidents, etc.)
+  // Leaders can see members below them — both directions are allowed
+  // Only hidden senior leaders are restricted (handled above)
+  return true;
 };
 
 const canSearchUser = (viewer, target) => canViewProfile(viewer, target);

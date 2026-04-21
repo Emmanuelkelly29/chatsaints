@@ -32,7 +32,7 @@ const getPendingApprovals = async (req, res) => {
        ORDER BY la.created_at ASC`,
       [userTier, isItSupport]
     );
-    return res.json(result.rows);
+    return res.json({ data: result.rows });
   } catch (err) { return res.status(500).json({ error: 'Failed' }); }
 };
 
@@ -58,6 +58,19 @@ const approveLeader = async (req, res) => {
     await query(
       `UPDATE users SET is_approved=true,approved_by=$1,approved_at=NOW() WHERE id=$2`,
       [req.user.id, approval.applicant_id]);
+
+    // Auto-approve stake pool membership if this user is a YSA member
+    const applicantRes = await query('SELECT role, stake_id FROM users WHERE id=$1', [approval.applicant_id]);
+    if (applicantRes.rows.length) {
+      const { role: applicantRole, stake_id } = applicantRes.rows[0];
+      if (applicantRole === 'ysa_member' && stake_id) {
+        await query(
+          `UPDATE stake_pool_members SET approved=true, approved_at=NOW(), added_by=$1
+           WHERE user_id=$2 AND stake_id=$3`,
+          [req.user.id, approval.applicant_id, stake_id]
+        );
+      }
+    }
 
     return res.json({ message: 'Leader account approved' });
   } catch (err) { return res.status(500).json({ error: 'Failed' }); }

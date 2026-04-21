@@ -31,7 +31,11 @@ class AuthService {
     required String role,
     bool isSingle = true,
     String? stakeId,
+    String? stakeName,
+    String? stakeCountry,
     String? districtId,
+    String? districtName,
+    String? districtCountry,
     String? email,
   }) async {
     final res = await _api.post('/auth/register', {
@@ -42,7 +46,11 @@ class AuthService {
       'role': role,
       'is_single': isSingle,
       if (stakeId != null) 'stake_id': stakeId,
+      if (stakeName != null) 'stake_name': stakeName,
+      if (stakeCountry != null) 'stake_country': stakeCountry,
       if (districtId != null) 'district_id': districtId,
+      if (districtName != null) 'district_name': districtName,
+      if (districtCountry != null) 'district_country': districtCountry,
       if (email != null) 'email': email,
     });
     await _api.saveToken(res['token']);

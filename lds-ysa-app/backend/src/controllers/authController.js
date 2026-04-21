@@ -132,13 +132,44 @@ const verifyOtp = async (req, res) => {
 const register = async (req, res) => {
   try {
     const { phone_number, full_name, date_of_birth, is_single = true,
-            role = 'ysa_member', stake_id, district_id, email, password } = req.body;
+            role = 'ysa_member',
+            stake_id, stake_name, stake_country,
+            district_id, district_name, district_country,
+            email, password } = req.body;
 
     if (!phone_number || !full_name || !date_of_birth || !password)
       return res.status(400).json({ error: 'phone_number, full_name, date_of_birth and password are required' });
 
     const existing = await query('SELECT id FROM users WHERE phone_number = $1', [phone_number]);
     if (existing.rows.length) return res.status(409).json({ error: 'Phone number already registered' });
+
+    // Resolve stake — leaders may provide a name (find-or-create), members provide an id
+    let resolvedStakeId = stake_id || null;
+    if (stake_name?.trim()) {
+      const ex = await query('SELECT id FROM stakes WHERE name ILIKE $1', [stake_name.trim()]);
+      if (ex.rows.length) {
+        resolvedStakeId = ex.rows[0].id;
+      } else {
+        const cr = await query(
+          'INSERT INTO stakes (id, name, country) VALUES ($1, $2, $3) RETURNING id',
+          [uuidv4(), stake_name.trim(), stake_country?.trim() || null]);
+        resolvedStakeId = cr.rows[0].id;
+      }
+    }
+
+    // Resolve district similarly
+    let resolvedDistrictId = district_id || null;
+    if (district_name?.trim()) {
+      const ex = await query('SELECT id FROM districts WHERE name ILIKE $1', [district_name.trim()]);
+      if (ex.rows.length) {
+        resolvedDistrictId = ex.rows[0].id;
+      } else {
+        const cr = await query(
+          'INSERT INTO districts (id, name, country) VALUES ($1, $2, $3) RETURNING id',
+          [uuidv4(), district_name.trim(), district_country?.trim() || null]);
+        resolvedDistrictId = cr.rows[0].id;
+      }
+    }
 
     const passwordHash = await bcrypt.hash(password, 12);
     const needsApproval = requiresLeaderApproval(role);
@@ -150,7 +181,7 @@ const register = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11)
        RETURNING id,full_name,phone_number,role,status,is_approved`,
       [uuidv4(),phone_number,full_name,date_of_birth,is_single,role,
-       stake_id||null,district_id||null,email||null,isApproved,passwordHash]
+       resolvedStakeId,resolvedDistrictId,email||null,isApproved,passwordHash]
     );
 
     const user = result.rows[0];
@@ -159,9 +190,9 @@ const register = async (req, res) => {
       await query(`INSERT INTO leader_approvals (id,applicant_id,declared_role,status) VALUES ($1,$2,$3,'pending')`,
         [uuidv4(), user.id, role]);
 
-    if (role === 'ysa_member' && stake_id)
+    if (role === 'ysa_member' && resolvedStakeId)
       await query(`INSERT INTO stake_pool_members (id,user_id,stake_id,approved) VALUES ($1,$2,$3,false) ON CONFLICT DO NOTHING`,
-        [uuidv4(), user.id, stake_id]);
+        [uuidv4(), user.id, resolvedStakeId]);
 
     return res.status(201).json({
       message: needsApproval ? 'Account created. Awaiting leader approval.' : 'Account created successfully.',

@@ -7,6 +7,7 @@ import '../../models/conversation_model.dart';
 import '../../theme/app_theme.dart';
 import 'chat_screen.dart';
 import 'search_screen.dart';
+import 'create_group_screen.dart';
 
 class ConversationsScreen extends StatefulWidget {
   const ConversationsScreen({super.key});
@@ -121,16 +122,35 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     ),
                     SliverToBoxAdapter(child: _buildStoryRow()),
                   ],
-                  // ── "RECENT CHATS" header ──────────────────────────────
+                  // ── "CHATS & GROUPS" header ──────────────────────────────
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
                       child: Row(children: [
                         const Text('💬', style: TextStyle(fontSize: 12)),
                         const SizedBox(width: 6),
-                        Text('RECENT CHATS',
+                        Text('CHATS & GROUPS',
                           style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
                               color: AppTheme.textSecondary.withOpacity(0.7), letterSpacing: 1.5)),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: _createGroup,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppTheme.accent.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppTheme.accent.withOpacity(0.3)),
+                            ),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.group_add, color: AppTheme.accent, size: 13),
+                              const SizedBox(width: 4),
+                              Text('New Group',
+                                style: TextStyle(fontSize: 11, color: AppTheme.accent,
+                                    fontWeight: FontWeight.w600)),
+                            ]),
+                          ),
+                        ),
                       ]),
                     ),
                   ),
@@ -172,7 +192,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       backgroundColor: AppTheme.accent,
       foregroundColor: AppTheme.primary,
       shape: const CircleBorder(),
-      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
+      onPressed: _showNewChatOptions,
       child: const Icon(Icons.edit, size: 22),
     ),
   );
@@ -364,6 +384,43 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     );
   }
 
+  // ─── New chat / new group ───────────────────────────────────────────────────
+  void _showNewChatOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 36, height: 4, margin: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(color: AppTheme.divider, borderRadius: BorderRadius.circular(2))),
+        ListTile(
+          leading: const Icon(Icons.edit_outlined, color: AppTheme.accent),
+          title: const Text('New Chat', style: TextStyle(color: Colors.white)),
+          subtitle: Text('Start a 1-on-1 conversation', style: TextStyle(color: AppTheme.textSecondary.withOpacity(0.7))),
+          onTap: () {
+            Navigator.pop(context);
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.group_add, color: AppTheme.accent),
+          title: const Text('New Group', style: TextStyle(color: Colors.white)),
+          subtitle: Text('Create a group conversation', style: TextStyle(color: AppTheme.textSecondary.withOpacity(0.7))),
+          onTap: () {
+            Navigator.pop(context);
+            _createGroup();
+          },
+        ),
+      ])),
+    );
+  }
+
+  void _createGroup() {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()))
+        .then((_) => _load());
+  }
+
   @override
   void dispose() {
     _scriptureTimer?.cancel();
@@ -418,10 +475,23 @@ class _ChatTile extends StatelessWidget {
         // Name + badge + message
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
+            if (conv.isGroup) ...[
+              Container(
+                margin: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.accent.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text('GROUP',
+                  style: TextStyle(color: AppTheme.accent, fontSize: 8,
+                      fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+              ),
+            ],
             Flexible(child: Text(conv.name ?? 'Direct Message',
               style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis)),
-            if (conv.badgeLabel != null) ...[
+            if (!conv.isGroup && conv.badgeLabel != null) ...[
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

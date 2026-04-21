@@ -6,6 +6,7 @@ const { canJoinGroup, isMissionaryLocked } = require('../utils/accessControl');
 // GET /api/conversations — list all conversations for current user
 const listConversations = async (req, res) => {
   try {
+    const userId = req.user.id;
     const result = await query(
       `SELECT c.id,c.name,c.is_group,c.photo_url,c.created_at,
               (SELECT content FROM messages WHERE conversation_id=c.id
@@ -18,14 +19,36 @@ const listConversations = async (req, res) => {
               (SELECT COUNT(*) FROM messages m
                WHERE m.conversation_id=c.id AND m.created_at >
                COALESCE((SELECT read_at FROM message_reads mr2
-                WHERE mr2.message_id=m.id AND mr2.user_id=$1 LIMIT 1), '1970-01-01')) as unread_count
+                WHERE mr2.message_id=m.id AND mr2.user_id=$1 LIMIT 1), '1970-01-01')) as unread_count,
+              -- For 1-on-1: get the OTHER user's name, photo, role
+              (SELECT u2.full_name FROM conversation_members cm2
+               JOIN users u2 ON u2.id=cm2.user_id
+               WHERE cm2.conversation_id=c.id AND cm2.user_id != $1 AND cm2.left_at IS NULL
+               LIMIT 1) as other_name,
+              (SELECT u2.profile_photo_url FROM conversation_members cm2
+               JOIN users u2 ON u2.id=cm2.user_id
+               WHERE cm2.conversation_id=c.id AND cm2.user_id != $1 AND cm2.left_at IS NULL
+               LIMIT 1) as other_photo,
+              (SELECT u2.role FROM conversation_members cm2
+               JOIN users u2 ON u2.id=cm2.user_id
+               WHERE cm2.conversation_id=c.id AND cm2.user_id != $1 AND cm2.left_at IS NULL
+               LIMIT 1) as other_role
        FROM conversations c
        JOIN conversation_members cm ON c.id=cm.conversation_id
        WHERE cm.user_id=$1 AND cm.left_at IS NULL
        ORDER BY last_message_at DESC NULLS LAST`,
-      [req.user.id]
+      [userId]
     );
-    return res.json(result.rows);
+
+    // For 1-on-1 chats, use the other person's name/photo
+    const rows = result.rows.map(r => ({
+      ...r,
+      name: r.is_group ? r.name : (r.other_name || r.name || 'Chat'),
+      photo_url: r.is_group ? r.photo_url : (r.other_photo || r.photo_url),
+      role: r.is_group ? null : r.other_role,
+    }));
+
+    return res.json({ data: rows });
   } catch (err) { console.error(err); return res.status(500).json({ error: 'Failed' }); }
 };
 
@@ -91,7 +114,7 @@ const getMessages = async (req, res) => {
       before ? [id, limit, before] : [id, limit]
     );
 
-    return res.json(result.rows.reverse());
+    return res.json({ data: result.rows.reverse() });
   } catch (err) { return res.status(500).json({ error: 'Failed to fetch messages' }); }
 };
 
@@ -127,7 +150,7 @@ const getPinnedConversations = async (req, res) => {
       `SELECT c.id,c.name,c.is_group,c.photo_url,pc.pinned_at
        FROM pinned_conversations pc JOIN conversations c ON pc.conversation_id=c.id
        WHERE pc.user_id=$1 ORDER BY pc.pinned_at DESC`, [req.user.id]);
-    return res.json(result.rows);
+    return res.json({ data: result.rows });
   } catch (err) { return res.status(500).json({ error: 'Failed' }); }
 };
 

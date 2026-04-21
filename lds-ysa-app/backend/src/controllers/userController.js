@@ -36,13 +36,14 @@ const searchUsers = async (req, res) => {
        FROM users
        WHERE (full_name ILIKE $1 OR phone_number ILIKE $1 OR email ILIKE $1)
          AND status != 'suspended'
+         AND id != $2
        LIMIT 50`,
-      [`%${q}%`]
+      [`%${q}%`, viewer.id]
     );
 
     // Filter by access control rules
     const visible = result.rows.filter(target => canSearchUser(viewer, target));
-    return res.json(visible);
+    return res.json({ data: visible });
   } catch (err) { return res.status(500).json({ error: 'Search failed' }); }
 };
 

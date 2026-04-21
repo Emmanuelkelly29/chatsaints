@@ -234,7 +234,7 @@ class _LoginScreenState extends State<LoginScreen> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Row(children: [
-        Icon(Icons.church, size: 36, color: AppTheme.accent),
+        const Icon(Icons.church, size: 36, color: AppTheme.accent),
         const SizedBox(width: 10),
         RichText(
           text: const TextSpan(children: [

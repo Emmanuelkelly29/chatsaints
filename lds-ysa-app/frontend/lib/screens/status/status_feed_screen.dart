@@ -28,23 +28,17 @@ class _StatusFeedScreenState extends State<StatusFeedScreen> {
 
   Future<void> _load() async {
     try {
-      // Load both feed and my statuses in parallel
+      // Both endpoints return JSON arrays — use getList()
       final results = await Future.wait([
-        _api.get('/statuses/feed'),
-        _api.get('/statuses/mine'),
+        _api.getList('/statuses/feed'),
+        _api.getList('/statuses/mine'),
       ]);
-
-      final feedRaw  = results[0];
-      final mineRaw  = results[1];
-
-      final feedList = (feedRaw is List ? feedRaw : (feedRaw['data'] as List? ?? [])) as List<dynamic>;
-      final mineList = (mineRaw is List ? mineRaw : (mineRaw['data'] as List? ?? [])) as List<dynamic>;
 
       if (!mounted) return;
       setState(() {
-        _contacts   = feedList.whereType<Map<String,dynamic>>()
+        _contacts   = results[0].whereType<Map<String,dynamic>>()
             .map((j) => StatusContact.fromJson(j)).toList();
-        _myStatuses = mineList.whereType<Map<String,dynamic>>()
+        _myStatuses = results[1].whereType<Map<String,dynamic>>()
             .map((j) => StatusModel.fromJson(j)).toList();
         _loading = false;
       });
@@ -195,7 +189,7 @@ class _MyStatusTile extends StatelessWidget {
           onTap: onPost,
           child: Container(
             width: 20, height: 20,
-            decoration: BoxDecoration(color: AppTheme.accent, shape: BoxShape.circle),
+            decoration: const BoxDecoration(color: AppTheme.accent, shape: BoxShape.circle),
             child: const Icon(Icons.add, size: 14, color: AppTheme.primary),
           ),
         ),

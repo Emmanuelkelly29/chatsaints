@@ -3,6 +3,7 @@ import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import 'users_list_screen.dart';
 import 'missionary_overview_screen.dart';
+import 'stakes_management_screen.dart';
 import '../leaders/leaders_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -112,6 +113,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       subtitle: '${(_data?['overview']?['pending_approvals'] ?? 0)} accounts awaiting review',
                       onTap: () => Navigator.push(context,
                           MaterialPageRoute(builder: (_) => const LeadersScreen())),
+                    ),
+                    _ActionCard(
+                      icon: Icons.location_city,
+                      title: 'Manage Stakes & Districts',
+                      subtitle: 'Add, rename or remove stakes and districts',
+                      onTap: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const StakesManagementScreen())),
                     ),
                     const SizedBox(height: 40),
                   ],

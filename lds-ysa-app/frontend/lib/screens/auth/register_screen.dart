@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import '../home/home_screen.dart';
 
@@ -22,6 +23,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscure = true;
   int _step = 0; // 0=personal, 1=church, 2=account
 
+  // Stakes
+  List<Map<String, dynamic>> _stakes = [];
+  String? _stakeId;
+  bool _stakesLoading = false;
+
+  // For leader roles: type the stake / district name
+  final _stakeNameCtrl    = TextEditingController();
+  final _countryCtrl      = TextEditingController();
+  final _districtNameCtrl = TextEditingController();
+
+  // Leader roles CREATE a stake by typing; member roles SELECT from dropdown.
+  static const _leaderCreatorRoles = {
+    'bishop', 'stake_presidency', 'mission_president',
+    'mission_president_wife', 'ysa_couple_adviser',
+    'coordinating_council',
+  };
+  bool get _isLeaderRole => _leaderCreatorRoles.contains(_role);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStakes();
+  }
+
+  Future<void> _loadStakes() async {
+    setState(() => _stakesLoading = true);
+    try {
+      final list = await ApiService().getList('/geography/stakes');
+      if (mounted) setState(() {
+        _stakes = list.whereType<Map<String, dynamic>>().toList();
+        _stakesLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _stakesLoading = false);
+    }
+  }
+
   final List<Map<String, String>> _roles = [
     {'value': 'ysa_member',         'label': 'YSA Member (18–35)'},
     {'value': 'ysa_rep',            'label': 'YSA Representative'},
@@ -41,14 +79,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     setState(() => _loading = true);
     try {
+      final stakeNameVal  = _stakeNameCtrl.text.trim();
+      final countryVal     = _countryCtrl.text.trim();
+      final districtNameVal = _districtNameCtrl.text.trim();
       await AuthService().register(
-        phoneNumber: _phoneCtrl.text.trim(),
-        fullName: _nameCtrl.text.trim(),
-        dateOfBirth: _dob!.toIso8601String().split('T').first,
-        password: _passCtrl.text,
-        role: _role,
-        isSingle: _isSingle,
-        email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+        phoneNumber:    _phoneCtrl.text.trim(),
+        fullName:       _nameCtrl.text.trim(),
+        dateOfBirth:    _dob!.toIso8601String().split('T').first,
+        password:       _passCtrl.text,
+        role:           _role,
+        isSingle:       _isSingle,
+        stakeId:        _isLeaderRole ? null : _stakeId,
+        stakeName:      (_isLeaderRole && stakeNameVal.isNotEmpty) ? stakeNameVal : null,
+        stakeCountry:   countryVal.isNotEmpty ? countryVal : null,
+        districtName:   districtNameVal.isNotEmpty ? districtNameVal : null,
+        email:          _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
       );
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
@@ -147,6 +192,86 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onChanged: (v) => setState(() => _role = v!),
                 ),
                 const SizedBox(height: 14),
+                // Stake / District field — leaders type, members pick from dropdown
+                if (_role != 'missionary') ...[  
+                  if (_isLeaderRole) ...[  
+                    TextFormField(
+                      controller: _stakeNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Stake name *',
+                        prefixIcon: Icon(Icons.location_city),
+                        hintText: 'e.g. Lagos Nigeria Ikeja Stake',
+                      ),
+                      validator: (v) =>
+                        (_role == 'bishop' || _role == 'stake_presidency')
+                          ? (v?.isEmpty ?? true) ? 'Enter your stake name' : null
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _countryCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Country',
+                        prefixIcon: Icon(Icons.flag),
+                        hintText: 'e.g. Nigeria',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accent.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppTheme.accent.withOpacity(0.3)),
+                      ),
+                      child: const Row(children: [
+                        Icon(Icons.info_outline, size: 16, color: AppTheme.accent),
+                        SizedBox(width: 8),
+                        Expanded(child: Text(
+                          'If this stake is already in the app it will be matched automatically. '
+                          'Otherwise it will be created and future members can select it.',
+                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                        )),
+                      ]),
+                    ),
+                    const SizedBox(height: 14),
+                  ] else ...[  
+                    _stakesLoading
+                      ? const LinearProgressIndicator(color: AppTheme.accent)
+                      : DropdownButtonFormField<String>(
+                          value: _stakeId,
+                          decoration: const InputDecoration(
+                            labelText: 'Your Stake *',
+                            prefixIcon: Icon(Icons.location_city),
+                            hintText: 'Select your stake',
+                          ),
+                          items: _stakes.isEmpty
+                            ? [const DropdownMenuItem(value: '__none', child: Text('No stakes registered yet'))]
+                            : _stakes.map((s) => DropdownMenuItem<String>(
+                                value: s['id'] as String,
+                                child: Text(
+                                  s['country'] != null
+                                    ? '${s['name']} (${s['country']})'
+                                    : '${s['name']}',
+                                  overflow: TextOverflow.ellipsis),
+                              )).toList(),
+                          onChanged: _stakes.isEmpty ? null : (v) => setState(() => _stakeId = v),
+                          validator: (v) =>
+                            (_role == 'ysa_member' || _role == 'ysa_rep')
+                              ? (v == null || v == '__none') ? 'Please select your stake' : null
+                              : null,
+                        ),
+                    if (_stakes.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'No stakes in the app yet. Ask your bishop or stake presidency to sign up first.',
+                          style: TextStyle(fontSize: 12, color: AppTheme.accent.withOpacity(0.8)),
+                        ),
+                      ),
+                    const SizedBox(height: 14),
+                  ],
+                ],
                 SwitchListTile(
                   value: _isSingle,
                   onChanged: (v) => setState(() => _isSingle = v),
@@ -245,5 +370,5 @@ class _RegisterScreenState extends State<RegisterScreen> {
   );
 
   @override
-  void dispose() { _nameCtrl.dispose(); _phoneCtrl.dispose(); _emailCtrl.dispose(); _passCtrl.dispose(); super.dispose(); }
+  void dispose() { _nameCtrl.dispose(); _phoneCtrl.dispose(); _emailCtrl.dispose(); _passCtrl.dispose(); _stakeNameCtrl.dispose(); _countryCtrl.dispose(); _districtNameCtrl.dispose(); super.dispose(); }
 }

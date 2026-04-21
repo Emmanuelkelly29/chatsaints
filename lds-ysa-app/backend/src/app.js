@@ -23,9 +23,9 @@ app.use(express.urlencoded({ extended: true }));
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 // Rate limiting
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true });
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 2000, standardHeaders: true });
 app.use('/api/', limiter);
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
 app.use('/api/auth/', authLimiter);
 
 // Static uploads

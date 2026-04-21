@@ -7,8 +7,8 @@ import '../profile/profile_screen.dart';
 import '../missionary/missionary_screen.dart';
 import '../leaders/leaders_screen.dart';
 import '../admin/admin_dashboard_screen.dart';
-import '../groups/groups_screen.dart';
 import '../status/status_feed_screen.dart';
+import '../pool/pool_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -34,12 +34,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final s = <Widget>[
       const ConversationsScreen(),  // 0 — Chats
       const StatusFeedScreen(),     // 1 — Status
-      const GroupsScreen(),         // 2 — Groups
-      const SearchScreen(),         // 3 — Search
+      const SearchScreen(),         // 2 — Search
     ];
     if (_isAdmin)   s.add(const AdminDashboardScreen());
     if (_isLeader)  s.add(const LeadersScreen());
     if (_isMission) s.add(const MissionaryScreen());
+    if (_isMission)
+      s.add(const PoolScreen(globalMode: true));
+    else
+      s.add(const PoolScreen());
     s.add(const ProfileScreen());
     return s;
   }
@@ -55,11 +58,6 @@ class _HomeScreenState extends State<HomeScreen> {
         icon: Icon(Icons.circle_outlined),
         activeIcon: Icon(Icons.circle),
         label: 'Status',
-      ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.group_outlined),
-        activeIcon: Icon(Icons.group),
-        label: 'Groups',
       ),
       const BottomNavigationBarItem(
         icon: Icon(Icons.search),
@@ -79,6 +77,15 @@ class _HomeScreenState extends State<HomeScreen> {
       items.add(const BottomNavigationBarItem(
           icon: Icon(Icons.flag_outlined), activeIcon: Icon(Icons.flag), label: 'Mission'));
     }
+    items.add(_isMission
+        ? const BottomNavigationBarItem(
+            icon: Icon(Icons.travel_explore_outlined),
+            activeIcon: Icon(Icons.travel_explore),
+            label: 'YSA Global')
+        : const BottomNavigationBarItem(
+            icon: Icon(Icons.public_outlined),
+            activeIcon: Icon(Icons.public),
+            label: 'Pool'));
     items.add(const BottomNavigationBarItem(
         icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Profile'));
     return items;

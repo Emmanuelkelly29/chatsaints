@@ -30,6 +30,23 @@ class ApiService {
     return _handle(res);
   }
 
+  /// Use this when the endpoint returns a JSON array instead of an object.
+  Future<List<dynamic>> getList(String path) async {
+    final res = await http.get(
+      Uri.parse('${AppConstants.apiBase}$path'),
+      headers: await _headers,
+    );
+    if (res.statusCode >= 400) {
+      final data = jsonDecode(res.body);
+      if (data is Map) throw ApiException((data['error'] as String?) ?? 'Request failed', res.statusCode);
+      throw ApiException('Request failed (${res.statusCode})', res.statusCode);
+    }
+    final decoded = jsonDecode(res.body);
+    if (decoded is List) return decoded;
+    if (decoded is Map && decoded.containsKey('data')) return decoded['data'] as List;
+    return [];
+  }
+
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
     final res = await http.post(
       Uri.parse('${AppConstants.apiBase}$path'),

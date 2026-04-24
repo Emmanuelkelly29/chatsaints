@@ -129,6 +129,24 @@ function getVisibleFields(viewerRole, targetRole, isSameUnit = false) {
   return ['full_name', 'profile_photo_url', 'stake', 'role'];
 }
 
+/**
+ * Can `callerRole` initiate a call to `targetRole`?
+ *   - Same level can call each other.
+ *   - Higher level can call those below.
+ *   - Lower level CANNOT call those above.
+ *   - Missionaries can only call within mission (enforced at query level separately).
+ */
+function canCall(callerRole, targetRole) {
+  if (callerRole === 'it_support') return true;
+  if (callerRole === 'missionary') {
+    // Missionaries may only call fellow missionaries, mission president / wife
+    return ['missionary', 'mission_president', 'mission_president_wife'].includes(targetRole);
+  }
+  const callerLevel = ROLE_LEVEL[callerRole] || 0;
+  const targetLevel = ROLE_LEVEL[targetRole] || 0;
+  return callerLevel >= targetLevel;
+}
+
 module.exports = {
   ROLE_LEVEL,
   HIDDEN_ROLES,
@@ -139,4 +157,5 @@ module.exports = {
   missionaryAllowed,
   MISSIONARY_LOCKED_FEATURES,
   getVisibleFields,
+  canCall,
 };

@@ -5,6 +5,69 @@ const { v4: uuidv4 } = require('uuid');
 const { query } = require('../config/database');
 const { authenticate, requireActive } = require('../middleware/auth');
 
+// GET /api/calls/history  — paginated call log for the current user (WhatsApp-style)
+router.get('/history', authenticate, requireActive, async (req, res, next) => {
+  try {
+    const limit  = Math.min(parseInt(req.query.limit  || '50', 10), 100);
+    const offset = parseInt(req.query.offset || '0', 10);
+
+    // All calls where I am initiator or participant
+    const result = await query(
+      `SELECT
+          c.id,
+          c.call_type,
+          c.status,
+          c.started_at,
+          c.ended_at,
+          c.duration_seconds,
+          c.created_at,
+          c.initiated_by,
+          -- other party info (first participant that is not me)
+          op.id            AS other_user_id,
+          op.full_name     AS other_user_name,
+          op.profile_photo_url AS other_user_photo,
+          op.role          AS other_user_role
+       FROM calls c
+       -- join participants to find "me"
+       JOIN call_participants cp_me
+         ON cp_me.call_id = c.id AND cp_me.user_id = $1
+       -- join participants to find the other side
+       LEFT JOIN call_participants cp_other
+         ON cp_other.call_id = c.id AND cp_other.user_id <> $1
+       LEFT JOIN users op ON op.id = cp_other.user_id
+       ORDER BY c.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [req.user.id, limit, offset]
+    );
+
+    // Deduplicate: for group calls with many participants, take first other user
+    const seen = new Set();
+    const calls = [];
+    for (const row of result.rows) {
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        calls.push({
+          id:              row.id,
+          call_type:       row.call_type,
+          status:          row.status,
+          is_outgoing:     row.initiated_by === req.user.id,
+          started_at:      row.started_at,
+          ended_at:        row.ended_at,
+          duration_seconds:row.duration_seconds,
+          created_at:      row.created_at,
+          other_user: row.other_user_id ? {
+            id:    row.other_user_id,
+            name:  row.other_user_name,
+            photo: row.other_user_photo,
+            role:  row.other_user_role,
+          } : null,
+        });
+      }
+    }
+    res.json({ calls });
+  } catch (err) { next(err); }
+});
+
 // POST /api/calls/initiate
 router.post('/initiate', authenticate, requireActive, async (req, res, next) => {
   try {

@@ -25,7 +25,7 @@ const start = async () => {
 
     server.listen(PORT, () => {
       console.log(`\n========================================`);
-      console.log(`  LDS YSA Connect API`);
+      console.log(`  ChatSaints API`);
       console.log(`  HTTP  : http://localhost:${PORT}`);
       console.log(`  WS    : ws://localhost:${PORT}/ws`);
       console.log(`  Health: http://localhost:${PORT}/health`);

@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
+import '../calls/call_history_screen.dart';
 import '../chat/conversations_screen.dart';
-import '../chat/search_screen.dart';
 import '../profile/profile_screen.dart';
 import '../missionary/missionary_screen.dart';
 import '../leaders/leaders_screen.dart';
 import '../admin/admin_dashboard_screen.dart';
 import '../status/status_feed_screen.dart';
 import '../pool/pool_screen.dart';
+import '../meetings/meetings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +20,16 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   final _user = AuthService().currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
 
   // Role tier helper
   static const _adminRoles = {
@@ -33,8 +44,9 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Widget> get _screens {
     final s = <Widget>[
       const ConversationsScreen(),  // 0 — Chats
-      const StatusFeedScreen(),     // 1 — Status
-      const SearchScreen(),         // 2 — Search
+      const CallHistoryScreen(),    // 1 — Calls
+      const StatusFeedScreen(),     // 2 — Status
+      const MeetingsScreen(),       // 3 — Meetings
     ];
     if (_isAdmin)   s.add(const AdminDashboardScreen());
     if (_isLeader)  s.add(const LeadersScreen());
@@ -55,13 +67,19 @@ class _HomeScreenState extends State<HomeScreen> {
         label: 'Chats',
       ),
       const BottomNavigationBarItem(
+        icon: Icon(Icons.call_outlined),
+        activeIcon: Icon(Icons.call),
+        label: 'Calls',
+      ),
+      const BottomNavigationBarItem(
         icon: Icon(Icons.circle_outlined),
         activeIcon: Icon(Icons.circle),
         label: 'Status',
       ),
       const BottomNavigationBarItem(
-        icon: Icon(Icons.search),
-        label: 'Search',
+        icon: Icon(Icons.video_camera_front_outlined),
+        activeIcon: Icon(Icons.video_camera_front),
+        label: 'Meetings',
       ),
     ];
     if (_isAdmin) {

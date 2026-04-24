@@ -6,6 +6,7 @@ const { query } = require('../config/database');
 const { getRedisClient, keys } = require('../config/redis');
 const { isMissionaryLocked } = require('../utils/accessControl');
 const { notifyConversationMembers, notifyIncomingCall } = require('../services/notificationService');
+const { canCall } = require('../config/hierarchy');
 
 // Map: userId -> Set<WebSocket>
 const userSockets = new Map();
@@ -150,35 +151,72 @@ const handleMessage = async (ws, user, rawData) => {
 
     case 'initiate_call': {
       const { conversation_id, call_type } = payload;
+      if (!conversation_id || typeof conversation_id !== 'string' || conversation_id.trim() === '') {
+        ws.send(JSON.stringify({ type: 'error', payload: { message: 'conversation_id is required' } }));
+        break;
+      }
       const callId = uuidv4();
+
+      // Get all other conversation members with their roles
+      const members = await query(
+        `SELECT u.id AS user_id, u.role
+         FROM conversation_members cm
+         JOIN users u ON u.id = cm.user_id
+         WHERE cm.conversation_id=$1 AND cm.left_at IS NULL AND cm.user_id != $2`,
+        [conversation_id, user.id]
+      );
+
+      // Hierarchy check: caller must be allowed to call every member
+      const blocked = members.rows.find(m => !canCall(user.role, m.role));
+      if (blocked) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          payload: { message: 'You do not have permission to call members of this conversation.' },
+        }));
+        break;
+      }
+
       await query(
-        `INSERT INTO calls (id, conversation_id, initiated_by, type, status, started_at)
+        `INSERT INTO calls (id, conversation_id, initiated_by, call_type, status, started_at)
          VALUES ($1,$2,$3,$4,'initiated', NOW())`,
         [callId, conversation_id, user.id, call_type]
       );
 
-      // Get conversation members to call
-      const members = await query(
-        `SELECT user_id FROM conversation_members
-         WHERE conversation_id=$1 AND left_at IS NULL AND user_id != $2`,
-        [conversation_id, user.id]
+      // Record caller as participant
+      await query(
+        `INSERT INTO call_participants (call_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [callId, user.id]
       );
 
-      members.rows.forEach(row => {
+      const onlineNow = getOnlineUserIds();
+      let anyReceiverOnline = false;
+
+      for (const row of members.rows) {
+        // Record each recipient as participant
+        await query(
+          `INSERT INTO call_participants (call_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+          [callId, row.user_id]
+        );
+        const isOnline = onlineNow.has(row.user_id);
+        if (isOnline) anyReceiverOnline = true;
         // Real-time signal to online members
         broadcast(row.user_id, {
           type: 'incoming_call',
           payload: { call_id: callId, caller_id: user.id, caller_name: user.full_name, call_type, conversation_id },
         });
         // Push notification to offline members
-        if (!getOnlineUserIds().has(row.user_id)) {
+        if (!isOnline) {
           notifyIncomingCall(row.user_id, user.full_name, call_type, callId, conversation_id);
         }
-      });
+      }
 
-      ws.send(JSON.stringify({ type: 'call_initiated', payload: { call_id: callId } }));
+      ws.send(JSON.stringify({
+        type: 'call_initiated',
+        payload: { call_id: callId, any_receiver_online: anyReceiverOnline },
+      }));
       break;
     }
+
 
     // WebRTC offer/answer/ICE candidate relay
     case 'webrtc_offer':
@@ -194,9 +232,20 @@ const handleMessage = async (ws, user, rawData) => {
 
     case 'call_accepted': {
       const { call_id, conversation_id } = payload;
-      await query(`UPDATE calls SET status='answered' WHERE id=$1`, [call_id]);
+      await query(`UPDATE calls SET status='answered', started_at=COALESCE(started_at, NOW()) WHERE id=$1`, [call_id]);
       await broadcastToConversation(conversation_id,
         { type: 'call_accepted', payload: { call_id, accepted_by: user.id } }
+      );
+      break;
+    }
+
+    // Sent by callee's device as soon as the incoming call screen is shown,
+    // so the caller's UI can switch from "Calling" → "Ringing"
+    case 'call_ringing': {
+      const { call_id, conversation_id } = payload;
+      await broadcastToConversation(conversation_id,
+        { type: 'call_ringing', payload: { call_id, ringing_user_id: user.id } },
+        user.id // exclude sender
       );
       break;
     }
@@ -214,7 +263,7 @@ const handleMessage = async (ws, user, rawData) => {
       const { call_id, conversation_id } = payload;
       await query(
         `UPDATE calls SET status='ended', ended_at=NOW(),
-         duration_secs=EXTRACT(EPOCH FROM(NOW()-started_at))::INTEGER
+         duration_seconds=EXTRACT(EPOCH FROM(NOW()-started_at))::INTEGER
          WHERE id=$1`,
         [call_id]
       );
@@ -233,6 +282,214 @@ const handleMessage = async (ws, user, rawData) => {
         onlineMap[uid] = userSockets.has(uid);
       }
       ws.send(JSON.stringify({ type: 'online_status', payload: onlineMap }));
+      break;
+    }
+
+    // ── Conference Meeting Signalling ──────────────────────────
+
+    // Notify all participants when a new user joins the meeting room
+    case 'meeting_joined': {
+      const { meeting_id } = payload;
+      const members = await query(
+        `SELECT mp.user_id FROM meeting_participants mp
+         WHERE mp.meeting_id=$1 AND mp.left_at IS NULL AND mp.user_id != $2`,
+        [meeting_id, user.id]
+      );
+      // Tell every existing participant about the new joiner
+      members.rows.forEach(row => {
+        broadcast(row.user_id, {
+          type: 'meeting_participant_joined',
+          payload: {
+            meeting_id,
+            user_id:   user.id,
+            full_name: user.full_name,
+          },
+        });
+      });
+      break;
+    }
+
+    // Participant leaves meeting room
+    case 'leave_meeting': {
+      const { meeting_id } = payload;
+      await query(
+        `UPDATE meeting_participants SET left_at=NOW() WHERE meeting_id=$1 AND user_id=$2`,
+        [meeting_id, user.id]
+      );
+      const members = await query(
+        `SELECT user_id FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL`,
+        [meeting_id]
+      );
+      members.rows.forEach(row => {
+        broadcast(row.user_id, {
+          type: 'meeting_participant_left',
+          payload: { meeting_id, user_id: user.id, full_name: user.full_name },
+        });
+      });
+      break;
+    }
+
+    // Host ends the entire meeting
+    case 'end_meeting': {
+      const { meeting_id } = payload;
+      const mRes = await query(
+        `SELECT host_id FROM meetings WHERE id=$1`,
+        [meeting_id]
+      );
+      if (!mRes.rows.length) break;
+      const meeting = mRes.rows[0];
+
+      // Only host can end via WS
+      const roleRes = await query(
+        `SELECT role FROM meeting_participants WHERE meeting_id=$1 AND user_id=$2 AND left_at IS NULL`,
+        [meeting_id, user.id]
+      );
+      const myRole = roleRes.rows[0]?.role;
+      if (meeting.host_id !== user.id && myRole !== 'co_host') break;
+
+      await query(
+        `UPDATE meetings SET status='ended', ended_at=NOW() WHERE id=$1`,
+        [meeting_id]
+      );
+      await query(
+        `UPDATE meeting_participants SET left_at=NOW() WHERE meeting_id=$1 AND left_at IS NULL`,
+        [meeting_id]
+      );
+
+      const members = await query(
+        `SELECT user_id FROM meeting_participants WHERE meeting_id=$1`,
+        [meeting_id]
+      );
+      members.rows.forEach(row => {
+        broadcast(row.user_id, {
+          type: 'meeting_ended',
+          payload: { meeting_id, ended_by: user.id },
+        });
+      });
+      break;
+    }
+
+    // Host approves a join request via WS (also fires REST, but WS for real-time)
+    case 'approve_join_request': {
+      const { meeting_id, target_user_id } = payload;
+      const mRes = await query(`SELECT host_id FROM meetings WHERE id=$1`, [meeting_id]);
+      if (!mRes.rows.length) break;
+      const roleRes = await query(
+        `SELECT role FROM meeting_participants WHERE meeting_id=$1 AND user_id=$2 AND left_at IS NULL`,
+        [meeting_id, user.id]
+      );
+      const myRole = roleRes.rows[0]?.role;
+      if (mRes.rows[0].host_id !== user.id && myRole !== 'co_host') break;
+
+      await query(
+        `UPDATE meeting_join_requests SET status='approved', resolved_at=NOW()
+         WHERE meeting_id=$1 AND user_id=$2`,
+        [meeting_id, target_user_id]
+      );
+      await query(
+        `INSERT INTO meeting_participants (id, meeting_id, user_id, role) VALUES ($1,$2,$3,'attendee')
+         ON CONFLICT (meeting_id, user_id) DO UPDATE SET left_at=NULL, joined_at=NOW()`,
+        [uuidv4(), meeting_id, target_user_id]
+      );
+
+      // Tell the requester they are approved
+      broadcast(target_user_id, {
+        type: 'join_request_approved',
+        payload: { meeting_id },
+      });
+      break;
+    }
+
+    // Host rejects a join request via WS
+    case 'reject_join_request': {
+      const { meeting_id, target_user_id } = payload;
+      const mRes = await query(`SELECT host_id FROM meetings WHERE id=$1`, [meeting_id]);
+      if (!mRes.rows.length) break;
+      const roleRes = await query(
+        `SELECT role FROM meeting_participants WHERE meeting_id=$1 AND user_id=$2 AND left_at IS NULL`,
+        [meeting_id, user.id]
+      );
+      const myRole = roleRes.rows[0]?.role;
+      if (mRes.rows[0].host_id !== user.id && myRole !== 'co_host') break;
+
+      await query(
+        `UPDATE meeting_join_requests SET status='rejected', resolved_at=NOW()
+         WHERE meeting_id=$1 AND user_id=$2`,
+        [meeting_id, target_user_id]
+      );
+      broadcast(target_user_id, {
+        type: 'join_request_rejected',
+        payload: { meeting_id },
+      });
+      break;
+    }
+
+    // Host mutes a participant via WS
+    case 'mute_participant': {
+      const { meeting_id, target_user_id } = payload;
+      await query(
+        `UPDATE meeting_participants SET is_muted=TRUE WHERE meeting_id=$1 AND user_id=$2`,
+        [meeting_id, target_user_id]
+      );
+      broadcast(target_user_id, {
+        type: 'participant_muted',
+        payload: { meeting_id, by: user.id },
+      });
+      break;
+    }
+
+    // Raise / lower hand
+    case 'raise_hand': {
+      const { meeting_id, raised } = payload;
+      await query(
+        `UPDATE meeting_participants SET hand_raised=$1 WHERE meeting_id=$2 AND user_id=$3`,
+        [raised ?? true, meeting_id, user.id]
+      );
+      const members = await query(
+        `SELECT user_id FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL`,
+        [meeting_id]
+      );
+      members.rows.forEach(row => {
+        broadcast(row.user_id, {
+          type: 'hand_raised',
+          payload: { meeting_id, user_id: user.id, full_name: user.full_name, raised: raised ?? true },
+        });
+      });
+      break;
+    }
+
+    // In-meeting chat
+    case 'meeting_chat': {
+      const { meeting_id, message } = payload;
+      if (!message?.trim()) break;
+      const members = await query(
+        `SELECT user_id FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL`,
+        [meeting_id]
+      );
+      members.rows.forEach(row => {
+        broadcast(row.user_id, {
+          type: 'meeting_chat_message',
+          payload: {
+            meeting_id,
+            from_user_id: user.id,
+            from_name:    user.full_name,
+            message:      message.trim(),
+            sent_at:      new Date().toISOString(),
+          },
+        });
+      });
+      break;
+    }
+
+    // WebRTC offer/answer/ICE for meeting participants (peer-to-peer within meeting)
+    case 'meeting_webrtc_offer':
+    case 'meeting_webrtc_answer':
+    case 'meeting_webrtc_ice': {
+      const { target_user_id, meeting_id, sdp, candidate } = payload;
+      broadcast(target_user_id, {
+        type,
+        payload: { from_user_id: user.id, meeting_id, sdp, candidate },
+      });
       break;
     }
 

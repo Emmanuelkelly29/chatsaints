@@ -13,6 +13,8 @@ import '../../models/conversation_model.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/constants.dart';
 import 'group_info_screen.dart';
+import '../calls/call_screen.dart';
+import '../../widgets/voice_note_recorder.dart';
 
 const _kEmojis = ['👍','❤️','😂','😮','😢','🙏','🔥','✅','👏','💙'];
 
@@ -40,6 +42,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // Reactions overlay
   String? _reactingMessageId;
+
+  // Voice recorder & call
+  bool _showVoiceRecorder = false;
+  String? _pendingCallType;
 
   @override
   void initState() {
@@ -72,6 +78,27 @@ class _ChatScreenState extends State<ChatScreen> {
           setState(() => _messages.add(m));
           _ws.markRead(m.id);
           _scrollToBottom();
+        }
+        break;
+      case 'call_initiated':
+        final p2 = msg['payload'] as Map<String, dynamic>;
+        if (_pendingCallType != null && mounted) {
+          final callId          = p2['call_id'] as String? ?? p2['id'] as String? ?? '';
+          final callType        = _pendingCallType!;
+          final receiverOnline  = p2['any_receiver_online'] as bool? ?? false;
+          _pendingCallType = null;
+          Navigator.push(context, MaterialPageRoute(
+            builder: (_) => CallScreen(
+              callId: callId,
+              conversationId: widget.conversation.id,
+              remoteUserName: widget.conversation.name ?? 'User',
+              remoteUserPhoto: widget.conversation.photoUrl,
+              callType: callType,
+              isOutgoing: true,
+              receiverOnline: receiverOnline,
+            ),
+            fullscreenDialog: true,
+          ));
         }
         break;
       case 'user_typing':
@@ -170,9 +197,29 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ── Calls ────────────────────────────────────────────────────
   void _initiateCall(String callType) {
+    setState(() => _pendingCallType = callType);
     _ws.initiateCall(widget.conversation.id, callType);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${callType == 'voice' ? 'Voice' : 'Video'} call started...')));
+  }
+
+  Future<void> _sendVoiceNote(XFile audioFile, Duration duration, List<double> waveform) async {
+    setState(() { _showVoiceRecorder = false; _sending = true; });
+    try {
+      final uploadRes = await _api.uploadXFile('/media/upload', audioFile);
+      final mediaUrl  = uploadRes['url'] as String;
+      final m = duration.inMinutes.toString().padLeft(2, '0');
+      final s = (duration.inSeconds % 60).toString().padLeft(2, '0');
+      _ws.send('send_message', {
+        'conversation_id': widget.conversation.id,
+        'content': '$m:$s',
+        'message_type': 'voice_note',
+        'media_url': mediaUrl,
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.danger));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   Future<void> _startGroupVideoCall() async {
@@ -300,6 +347,13 @@ class _ChatScreenState extends State<ChatScreen> {
             ]),
           ),
 
+        // Voice recorder (shown instead of input bar)
+        if (_showVoiceRecorder)
+          VoiceNoteRecorder(
+            onSend: _sendVoiceNote,
+            onCancel: () => setState(() => _showVoiceRecorder = false),
+          )
+        else
         // Input bar
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -341,11 +395,7 @@ class _ChatScreenState extends State<ChatScreen> {
             // Send / mic button
             GestureDetector(
               onTap: _textCtrl.text.trim().isEmpty
-                  ? () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Voice messages coming soon')),
-                      );
-                    }
+                  ? () => setState(() => _showVoiceRecorder = true)
                   : _sendText,
               child: Container(
                 padding: const EdgeInsets.all(10),
@@ -515,15 +565,11 @@ class _MessageBubble extends StatelessWidget {
                       ),
                     )
                   else if (message.type == 'voice_note')
-                    Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.play_circle_fill,
-                        color: isMe ? Colors.white : AppTheme.accent, size: 32),
-                      const SizedBox(width: 8),
-                      Container(width: 100, height: 2, color: isMe ? Colors.white38 : AppTheme.divider),
-                      const SizedBox(width: 8),
-                      Text(message.content ?? '0:00',
-                        style: TextStyle(fontSize: 12, color: isMe ? Colors.white70 : AppTheme.textSecondary)),
-                    ])
+                    VoiceNoteBubble(
+                      mediaUrl: message.mediaUrl ?? '',
+                      duration: message.content ?? '0:00',
+                      isMe: isMe,
+                    )
                   else if (message.type == 'file')
                     Row(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.attach_file, color: isMe ? Colors.white70 : AppTheme.accent),

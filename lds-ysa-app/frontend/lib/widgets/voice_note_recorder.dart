@@ -1,19 +1,16 @@
-import 'dart:async';
-import 'dart:io';
+﻿import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:record/record.dart';
+import 'package:cross_file/cross_file.dart';
+import 'package:path_provider/path_provider.dart';
 import '../theme/app_theme.dart';
 
-/// Voice note recording widget with live waveform visualization.
-/// Shows animated waveform bars while recording, then playback bar after.
-///
-/// Usage in ChatScreen:
-///   Hold the mic button → VoiceNoteRecorder appears
-///   Slide left to cancel, release to send
-///
-/// Dependencies: record package for recording, audio_waveforms for playback waveform
+// ── Voice Note Recorder ──────────────────────────────────────────
 class VoiceNoteRecorder extends StatefulWidget {
-  final void Function(File audioFile, Duration duration, List<double> waveform) onSend;
+  final void Function(XFile audioFile, Duration duration, List<double> waveform) onSend;
   final VoidCallback onCancel;
 
   const VoiceNoteRecorder({
@@ -28,17 +25,15 @@ class VoiceNoteRecorder extends StatefulWidget {
 
 class _VoiceNoteRecorderState extends State<VoiceNoteRecorder>
     with SingleTickerProviderStateMixin {
-  // Recording state
+  final _recorder = AudioRecorder();
+
   bool _isRecording = true;
   Duration _elapsed  = Duration.zero;
   Timer? _timer;
 
-  // Waveform data (simulated amplitude — replace with real mic amplitude in production)
   final List<double> _waveformData = [];
   Timer? _waveformTimer;
-  final _random = math.Random();
 
-  // Animation for the recording dot
   late AnimationController _pulseCtrl;
   late Animation<double>    _pulseAnim;
 
@@ -51,27 +46,44 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder>
       ..repeat(reverse: true);
     _pulseAnim = Tween(begin: 0.6, end: 1.0).animate(_pulseCtrl);
 
-    // Start elapsed timer
+    _startRecording();
+  }
+
+  Future<void> _startRecording() async {
+    final hasPermission = await _recorder.hasPermission();
+    if (!hasPermission) {
+      widget.onCancel();
+      return;
+    }
+
+    String path;
+    if (kIsWeb) {
+      path = 'voice_note.webm';
+    } else {
+      final dir = await getTemporaryDirectory();
+      path = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    }
+
+    await _recorder.start(
+      const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000, sampleRate: 44100),
+      path: path,
+    );
+
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsed += const Duration(seconds: 1));
     });
 
-    // Simulate waveform amplitude (in production, poll mic amplitude from record package)
-    _waveformTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+    _waveformTimer = Timer.periodic(const Duration(milliseconds: 150), (_) async {
       if (!mounted || !_isRecording) return;
-      setState(() {
-        // Real implementation: use record.getAmplitude() here
-        final amp = 0.2 + _random.nextDouble() * 0.8;
-        _waveformData.add(amp);
-        if (_waveformData.length > 60) _waveformData.removeAt(0);
-      });
+      try {
+        final amp = await _recorder.getAmplitude();
+        final normalized = ((amp.current + 60) / 60).clamp(0.05, 1.0);
+        if (mounted) setState(() {
+          _waveformData.add(normalized);
+          if (_waveformData.length > 60) _waveformData.removeAt(0);
+        });
+      } catch (_) {}
     });
-
-    // TODO: Start actual recording
-    // final record = Record();
-    // final dir = await getTemporaryDirectory();
-    // _filePath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    // await record.start(path: _filePath, encoder: AudioEncoder.aacLc, bitRate: 128000, samplingRate: 44100);
   }
 
   String get _elapsedLabel {
@@ -85,13 +97,20 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder>
     _waveformTimer?.cancel();
     setState(() => _isRecording = false);
 
-    // TODO: Stop recording and get file
-    // await record.stop();
-    // final file = File(_filePath);
+    final path = await _recorder.stop();
+    if (path == null) {
+      widget.onCancel();
+      return;
+    }
 
-    // For now, pass a placeholder
-    // widget.onSend(file, _elapsed, List.from(_waveformData));
-    widget.onCancel(); // Remove this line when real recording is wired up
+    widget.onSend(XFile(path), _elapsed, List.from(_waveformData));
+  }
+
+  void _cancel() {
+    _timer?.cancel();
+    _waveformTimer?.cancel();
+    _recorder.stop();
+    widget.onCancel();
   }
 
   @override
@@ -103,9 +122,8 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder>
       border: Border(top: BorderSide(color: AppTheme.divider)),
     ),
     child: Row(children: [
-      // Cancel (swipe left hint)
       GestureDetector(
-        onTap: () { _timer?.cancel(); _waveformTimer?.cancel(); widget.onCancel(); },
+        onTap: _cancel,
         child: Container(
           padding: const EdgeInsets.all(8),
           child: const Row(mainAxisSize: MainAxisSize.min, children: [
@@ -114,16 +132,9 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder>
           ]),
         ),
       ),
-
-      // Live waveform
       Expanded(
-        child: _WaveformBar(
-          amplitudes: _waveformData,
-          isRecording: _isRecording,
-        ),
+        child: _WaveformBar(amplitudes: _waveformData, isRecording: _isRecording),
       ),
-
-      // Recording indicator + elapsed time
       Row(mainAxisSize: MainAxisSize.min, children: [
         AnimatedBuilder(
           animation: _pulseAnim,
@@ -144,18 +155,12 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder>
             fontFeatures: [FontFeature.tabularFigures()],
           )),
       ]),
-
       const SizedBox(width: 12),
-
-      // Send button
       GestureDetector(
         onTap: _stopAndSend,
         child: Container(
           width: 48, height: 48,
-          decoration: const BoxDecoration(
-            color: AppTheme.accent,
-            shape: BoxShape.circle,
-          ),
+          decoration: const BoxDecoration(color: AppTheme.accent, shape: BoxShape.circle),
           child: const Icon(Icons.send, color: Colors.white, size: 22),
         ),
       ),
@@ -167,11 +172,12 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder>
     _timer?.cancel();
     _waveformTimer?.cancel();
     _pulseCtrl.dispose();
+    _recorder.dispose();
     super.dispose();
   }
 }
 
-// ── Waveform Bar Widget ──────────────────────────────────────────
+// ── Waveform Bar ─────────────────────────────────────────────────
 class _WaveformBar extends StatelessWidget {
   final List<double> amplitudes;
   final bool isRecording;
@@ -195,34 +201,22 @@ class _WaveformPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (amplitudes.isEmpty) return;
-
     final paint = Paint()
       ..color = color
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 3;
-
     const barWidth = 3.0;
     const barSpacing = 2.0;
     final totalBars = (size.width / (barWidth + barSpacing)).floor();
-    final startIdx = amplitudes.length > totalBars
-        ? amplitudes.length - totalBars : 0;
+    final startIdx = amplitudes.length > totalBars ? amplitudes.length - totalBars : 0;
     final displayAmps = amplitudes.sublist(startIdx);
-
     for (int i = 0; i < displayAmps.length; i++) {
       final x = i * (barWidth + barSpacing) + barWidth / 2;
       final amp = displayAmps[i].clamp(0.05, 1.0);
       final barH = amp * size.height * 0.9;
       final cy = size.height / 2;
-
-      // Fade older bars
-      final alpha = (i / displayAmps.length * 0.6 + 0.4);
-      paint.color = color.withOpacity(alpha);
-
-      canvas.drawLine(
-        Offset(x, cy - barH / 2),
-        Offset(x, cy + barH / 2),
-        paint,
-      );
+      paint.color = color.withOpacity(i / displayAmps.length * 0.6 + 0.4);
+      canvas.drawLine(Offset(x, cy - barH / 2), Offset(x, cy + barH / 2), paint);
     }
   }
 
@@ -232,7 +226,6 @@ class _WaveformPainter extends CustomPainter {
 }
 
 // ── Voice Note Playback Bubble ───────────────────────────────────
-/// Displays a played/unplayed voice note in the chat bubble
 class VoiceNoteBubble extends StatefulWidget {
   final String mediaUrl;
   final String duration;
@@ -248,37 +241,51 @@ class VoiceNoteBubble extends StatefulWidget {
 }
 
 class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
+  final _player = AudioPlayer();
   bool _playing = false;
   double _progress = 0.0;
-  Timer? _mockTimer;
+  StreamSubscription? _posSub;
+  StreamSubscription? _stateSub;
+  Duration _total = Duration.zero;
 
-  void _togglePlay() {
-    setState(() => _playing = !_playing);
+  @override
+  void initState() {
+    super.initState();
+    _posSub = _player.positionStream.listen((pos) {
+      if (_total.inMilliseconds > 0 && mounted) {
+        setState(() => _progress = pos.inMilliseconds / _total.inMilliseconds);
+      }
+    });
+    _stateSub = _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed && mounted) {
+        setState(() { _playing = false; _progress = 0.0; });
+      }
+      if (mounted) setState(() => _playing = state.playing);
+    });
+  }
+
+  Future<void> _togglePlay() async {
     if (_playing) {
-      // TODO: Use just_audio package to play from widget.mediaUrl
-      // final player = AudioPlayer();
-      // await player.setUrl(widget.mediaUrl);
-      // player.play();
-      _mockTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-        setState(() {
-          _progress += 0.01;
-          if (_progress >= 1.0) {
-            _progress = 0.0;
-            _playing = false;
-            _mockTimer?.cancel();
-          }
-        });
-      });
-    } else {
-      _mockTimer?.cancel();
+      await _player.pause();
+      return;
     }
+    try {
+      if (_player.processingState == ProcessingState.idle) {
+        final url = widget.mediaUrl.startsWith('http')
+            ? widget.mediaUrl
+            : 'http://localhost:4000${widget.mediaUrl}';
+        final duration = await _player.setUrl(url);
+        _total = duration ?? Duration.zero;
+      }
+      await _player.play();
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
-    final fgColor = widget.isMe ? Colors.white : AppTheme.primary;
+    final fgColor   = widget.isMe ? Colors.white : AppTheme.primary;
     final trackColor = widget.isMe ? Colors.white24 : Colors.grey.shade200;
-    final fillColor = widget.isMe ? Colors.white : AppTheme.primary;
+    final fillColor  = widget.isMe ? Colors.white : AppTheme.primary;
 
     return Row(mainAxisSize: MainAxisSize.min, children: [
       GestureDetector(
@@ -297,21 +304,18 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
       ),
       const SizedBox(width: 10),
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Waveform track
         SizedBox(
           width: 120, height: 28,
           child: Stack(children: [
-            // Background track
             Positioned.fill(child: Container(
               decoration: BoxDecoration(
                 color: trackColor,
                 borderRadius: BorderRadius.circular(4),
               ),
             )),
-            // Progress fill
             Positioned(
               left: 0, top: 0, bottom: 0,
-              width: 120 * _progress,
+              width: 120 * _progress.clamp(0.0, 1.0),
               child: Container(
                 decoration: BoxDecoration(
                   color: fillColor.withOpacity(0.3),
@@ -319,7 +323,6 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
                 ),
               ),
             ),
-            // Mini waveform bars (static visual)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
               child: Row(
@@ -347,5 +350,10 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   }
 
   @override
-  void dispose() { _mockTimer?.cancel(); super.dispose(); }
+  void dispose() {
+    _posSub?.cancel();
+    _stateSub?.cancel();
+    _player.dispose();
+    super.dispose();
+  }
 }

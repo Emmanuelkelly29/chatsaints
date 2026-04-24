@@ -211,7 +211,7 @@ class _ActivityChart extends StatelessWidget {
               Text('$count', style: const TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
               const SizedBox(height: 2),
               Container(
-                height: 80 * frac + 4,
+                height: 60 * frac + 4,
                 decoration: BoxDecoration(
                   color: AppTheme.accent.withOpacity(0.7),
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),

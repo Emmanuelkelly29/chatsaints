@@ -108,7 +108,7 @@ class SettingsScreen extends StatelessWidget {
           const _SectionHeader(title: 'Help & Info'),
           _SettingsTile(
             icon: Icons.help_outline,
-            title: 'About LDS YSA Connect',
+            title: 'About ChatSaints',
             subtitle: 'Version 1.0.0',
             onTap: () => _showAbout(context),
           ),
@@ -145,7 +145,7 @@ class SettingsScreen extends StatelessWidget {
   void _showAbout(BuildContext context) {
     showAboutDialog(
       context: context,
-      applicationName: 'LDS YSA Connect',
+      applicationName: 'ChatSaints',
       applicationVersion: '1.0.0',
       applicationLegalese: '© 2025 The Church of Jesus Christ of Latter-day Saints',
       children: const [

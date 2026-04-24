@@ -1,5 +1,5 @@
-name: lds_ysa_connect
-description: LDS YSA Connect — Church Chat & Community App
+name: chatsaints
+description: ChatSaints — Church Chat & Community App
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -27,6 +27,8 @@ dependencies:
   intl: ^0.19.0
   timeago: ^3.6.1
   uuid: ^4.3.3
+  record: ^5.0.4
+  cross_file: ^0.3.4
   permission_handler: ^11.3.0
   connectivity_plus: ^6.0.2
   path_provider: ^2.1.2

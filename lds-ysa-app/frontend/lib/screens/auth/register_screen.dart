@@ -28,10 +28,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _stakeId;
   bool _stakesLoading = false;
 
+  // Missions (for missionary signup)
+  List<Map<String, dynamic>> _missions = [];
+  String? _missionId;
+  bool _missionsLoading = false;
+
   // For leader roles: type the stake / district name
   final _stakeNameCtrl    = TextEditingController();
   final _countryCtrl      = TextEditingController();
   final _districtNameCtrl = TextEditingController();
+  final _missionNameCtrl  = TextEditingController(); // for mission_president creating a new mission
 
   // Leader roles CREATE a stake by typing; member roles SELECT from dropdown.
   static const _leaderCreatorRoles = {
@@ -45,6 +51,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void initState() {
     super.initState();
     _loadStakes();
+    _loadMissions();
+  }
+
+  Future<void> _loadMissions() async {
+    setState(() => _missionsLoading = true);
+    try {
+      final list = await ApiService().getList('/geography/missions');
+      if (mounted) setState(() {
+        _missions = list.whereType<Map<String, dynamic>>().toList();
+        _missionsLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _missionsLoading = false);
+    }
   }
 
   Future<void> _loadStakes() async {
@@ -93,6 +113,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         stakeName:      (_isLeaderRole && stakeNameVal.isNotEmpty) ? stakeNameVal : null,
         stakeCountry:   countryVal.isNotEmpty ? countryVal : null,
         districtName:   districtNameVal.isNotEmpty ? districtNameVal : null,
+        missionId:      _role == 'missionary' ? _missionId : null,
         email:          _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
       );
       if (!mounted) return;
@@ -282,8 +303,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 const SizedBox(height: 14),
-                // Missionary note
-                if (_role == 'missionary')
+                // Missionary mission picker
+                if (_role == 'missionary') ...[  
+                  _missionsLoading
+                    ? const LinearProgressIndicator(color: AppTheme.accent)
+                    : DropdownButtonFormField<String>(
+                        value: _missionId,
+                        decoration: const InputDecoration(
+                          labelText: 'Select your mission *',
+                          prefixIcon: Icon(Icons.flag),
+                          hintText: 'e.g. Nigeria Lagos Mission',
+                        ),
+                        items: _missions.isEmpty
+                          ? [const DropdownMenuItem(value: '__none', child: Text('No missions yet — ask your president'))]
+                          : _missions.map((m) => DropdownMenuItem<String>(
+                              value: m['id'] as String,
+                              child: Text(m['name'] as String? ?? '', overflow: TextOverflow.ellipsis),
+                            )).toList(),
+                        onChanged: _missions.isEmpty ? null : (v) => setState(() => _missionId = v),
+                        validator: (v) => (v == null || v == '__none') ? 'Please select your mission' : null,
+                      ),
+                  const SizedBox(height: 10),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -297,6 +337,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       style: TextStyle(fontSize: 13, color: AppTheme.missionary),
                     ),
                   ),
+                ],
                 if (_role != 'ysa_member' && _role != 'missionary')
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -370,5 +411,5 @@ class _RegisterScreenState extends State<RegisterScreen> {
   );
 
   @override
-  void dispose() { _nameCtrl.dispose(); _phoneCtrl.dispose(); _emailCtrl.dispose(); _passCtrl.dispose(); _stakeNameCtrl.dispose(); _countryCtrl.dispose(); _districtNameCtrl.dispose(); super.dispose(); }
+  void dispose() { _nameCtrl.dispose(); _phoneCtrl.dispose(); _emailCtrl.dispose(); _passCtrl.dispose(); _stakeNameCtrl.dispose(); _countryCtrl.dispose(); _districtNameCtrl.dispose(); _missionNameCtrl.dispose(); super.dispose(); }
 }

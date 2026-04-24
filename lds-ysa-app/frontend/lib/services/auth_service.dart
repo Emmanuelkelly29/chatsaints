@@ -36,6 +36,7 @@ class AuthService {
     String? districtId,
     String? districtName,
     String? districtCountry,
+    String? missionId,
     String? email,
   }) async {
     final res = await _api.post('/auth/register', {
@@ -51,6 +52,7 @@ class AuthService {
       if (districtId != null) 'district_id': districtId,
       if (districtName != null) 'district_name': districtName,
       if (districtCountry != null) 'district_country': districtCountry,
+      if (missionId != null) 'mission_id': missionId,
       if (email != null) 'email': email,
     });
     await _api.saveToken(res['token']);

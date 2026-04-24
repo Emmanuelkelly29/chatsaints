@@ -90,6 +90,43 @@ class WebSocketService {
   void endCall(String callId, String conversationId) =>
       send('end_call', {'call_id': callId, 'conversation_id': conversationId});
 
+  // ── Meeting helpers ─────────────────────────────────────────────
+
+  void joinedMeeting(String meetingId) =>
+      send('meeting_joined', {'meeting_id': meetingId});
+
+  void leaveMeeting(String meetingId) =>
+      send('leave_meeting', {'meeting_id': meetingId});
+
+  void endMeeting(String meetingId) =>
+      send('end_meeting', {'meeting_id': meetingId});
+
+  void sendMeetingChat(String meetingId, String message) =>
+      send('meeting_chat', {'meeting_id': meetingId, 'message': message});
+
+  void raiseHand(String meetingId, {bool raised = true}) =>
+      send('raise_hand', {'meeting_id': meetingId, 'raised': raised});
+
+  void muteParticipant(String meetingId, String targetUserId) =>
+      send('mute_participant', {'meeting_id': meetingId, 'target_user_id': targetUserId});
+
+  void approveJoinRequest(String meetingId, String targetUserId) =>
+      send('approve_join_request', {'meeting_id': meetingId, 'target_user_id': targetUserId});
+
+  void rejectJoinRequest(String meetingId, String targetUserId) =>
+      send('reject_join_request', {'meeting_id': meetingId, 'target_user_id': targetUserId});
+
+  void sendMeetingWebRtcOffer(String meetingId, String targetUserId, Map<String, dynamic> sdp) =>
+      send('meeting_webrtc_offer', {'meeting_id': meetingId, 'target_user_id': targetUserId, 'sdp': sdp});
+
+  void sendMeetingWebRtcAnswer(String meetingId, String targetUserId, Map<String, dynamic> sdp) =>
+      send('meeting_webrtc_answer', {'meeting_id': meetingId, 'target_user_id': targetUserId, 'sdp': sdp});
+
+  void sendMeetingIceCandidate(String meetingId, String targetUserId, Map<String, dynamic> candidate) =>
+      send('meeting_webrtc_ice', {'meeting_id': meetingId, 'target_user_id': targetUserId, 'candidate': candidate});
+
+  // ────────────────────────────────────────────────────────────────
+
   void disconnect() {
     _pingTimer?.cancel();
     _reconnectTimer?.cancel();

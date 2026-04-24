@@ -52,9 +52,11 @@ app.use('/api/video',          require('./routes/video'));
 app.use('/api/messages/:id/reactions', require('./routes/reactions'));
 app.use('/api/settings',       require('./routes/settings'));
 app.use('/api/media',          require('./routes/media'));
+app.use('/api/announcements',  require('./routes/announcements'));
+app.use('/api/meetings',       require('./routes/meetings'));
 
 // Health check
-app.get('/health', (req, res) => res.json({ status: 'ok', app: 'LDS YSA Connect', time: new Date() }));
+app.get('/health', (req, res) => res.json({ status: 'ok', app: 'ChatSaints', time: new Date() }));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));

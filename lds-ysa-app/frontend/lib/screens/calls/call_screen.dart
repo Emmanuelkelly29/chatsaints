@@ -1,5 +1,6 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../services/websocket_service.dart';
 import '../../theme/app_theme.dart';
 
@@ -12,6 +13,9 @@ class CallScreen extends StatefulWidget {
   final String? remoteUserPhoto;
   final String callType;       // 'voice' or 'video'
   final bool isOutgoing;
+  final String? remoteUserId;  // Known for incoming calls (caller_id); set on call_accepted for outgoing
+  /// For outgoing calls: whether at least one receiver was online when call was placed.
+  final bool receiverOnline;
 
   const CallScreen({
     super.key,
@@ -21,6 +25,8 @@ class CallScreen extends StatefulWidget {
     this.remoteUserPhoto,
     required this.callType,
     required this.isOutgoing,
+    this.remoteUserId,
+    this.receiverOnline = false,
   });
 
   @override
@@ -28,27 +34,98 @@ class CallScreen extends StatefulWidget {
 }
 
 class _CallScreenState extends State<CallScreen> {
-  final _ws   = WebSocketService();
+  final _ws = WebSocketService();
 
   CallState _state = CallState.calling;
-  bool _muted     = false;
-  bool _speakerOn = false;
-  bool _cameraOff = false;
+  bool _muted        = false;
+  bool _speakerOn    = false;
+  bool _cameraOff    = false;
+  bool _receiverRinging = false; // true once we know the receiver's device is ringing
   Duration _elapsed = Duration.zero;
   Timer? _timer;
   StreamSubscription? _wsSub;
 
+  // WebRTC
+  RTCPeerConnection? _pc;
+  MediaStream? _localStream;
+  final _localRenderer  = RTCVideoRenderer();
+  final _remoteRenderer = RTCVideoRenderer();
+  String? _remoteUserId;
+
+  static const _iceConfig = {
+    'iceServers': [
+      {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+    ]
+  };
+
   @override
   void initState() {
     super.initState();
+    _remoteUserId = widget.remoteUserId;
     _state = widget.isOutgoing ? CallState.calling : CallState.ringing;
+    _receiverRinging = widget.receiverOnline; // if already online, treat as ringing from start
+
+    _localRenderer.initialize();
+    _remoteRenderer.initialize();
+
     _wsSub = _ws.messages.listen(_onWsMessage);
 
-    // Auto-dismiss if no answer in 60 seconds
     if (widget.isOutgoing) {
       Timer(const Duration(seconds: 60), () {
         if (mounted && _state == CallState.calling) _endCall();
       });
+    }
+  }
+
+  // â”€â”€ WebRTC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Future<void> _initWebRTC({required bool isOfferer}) async {
+    try {
+      _pc = await createPeerConnection(_iceConfig);
+
+      final constraints = <String, dynamic>{
+        'audio': true,
+        'video': widget.callType == 'video' ? {'facingMode': 'user'} : false,
+      };
+      _localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      for (final track in _localStream!.getTracks()) {
+        await _pc!.addTrack(track, _localStream!);
+      }
+
+      if (widget.callType == 'video' && mounted) {
+        setState(() => _localRenderer.srcObject = _localStream);
+      }
+
+      _pc!.onTrack = (event) {
+        if (event.streams.isNotEmpty && mounted) {
+          setState(() => _remoteRenderer.srcObject = event.streams[0]);
+        }
+      };
+
+      _pc!.onIceCandidate = (candidate) {
+        if (_remoteUserId == null) return;
+        _ws.send('webrtc_ice_candidate', {
+          'call_id': widget.callId,
+          'target_user_id': _remoteUserId,
+          'candidate': candidate.toMap(),
+        });
+      };
+
+      if (isOfferer) {
+        final offer = await _pc!.createOffer();
+        await _pc!.setLocalDescription(offer);
+        _ws.send('webrtc_offer', {
+          'call_id': widget.callId,
+          'target_user_id': _remoteUserId,
+          'sdp': offer.toMap(),
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not access microphone/camera: $e')));
+      }
     }
   }
 
@@ -57,32 +134,88 @@ class _CallScreenState extends State<CallScreen> {
     final type    = msg['type'] as String?;
     final payload = msg['payload'] as Map<String, dynamic>? ?? {};
     final callId  = payload['call_id'] as String?;
-
     if (callId != widget.callId) return;
 
     switch (type) {
+      case 'call_ringing':
+        // A receiver's device started ringing — upgrade label from Calling → Ringing
+        if (_state == CallState.calling) {
+          setState(() => _receiverRinging = true);
+        }
+        break;
+
       case 'call_accepted':
-        setState(() => _state = CallState.connected);
-        _startTimer();
+        _remoteUserId ??= payload['accepted_by'] as String?;
+        // Only transition if not already connected (first acceptor wins for group calls)
+        if (_state != CallState.connected) {
+          setState(() => _state = CallState.connected);
+          _startTimer();
+          if (widget.isOutgoing) {
+            // Caller initiates WebRTC after callee accepts
+            _initWebRTC(isOfferer: true);
+          }
+        }
         break;
+
       case 'call_declined':
-        setState(() => _state = CallState.declined);
-        _dismiss(after: const Duration(seconds: 2));
+        // For group calls, only end if nobody else is connected
+        if (_state != CallState.connected) {
+          setState(() => _state = CallState.declined);
+          _dismiss(after: const Duration(seconds: 2));
+        }
         break;
+
       case 'call_ended':
         setState(() => _state = CallState.ended);
         _dismiss(after: const Duration(seconds: 2));
         break;
 
-      // WebRTC signalling — forward to flutter_webrtc when integrated
       case 'webrtc_offer':
+        _remoteUserId ??= payload['from_user_id'] as String?;
+        _handleOffer(payload);
+        break;
+
       case 'webrtc_answer':
+        _handleAnswer(payload);
+        break;
+
       case 'webrtc_ice_candidate':
-        // TODO: pipe into RTCPeerConnection
-        // _peerConnection.setRemoteDescription(...)
+        _handleIceCandidate(payload);
         break;
     }
   }
+
+  Future<void> _handleOffer(Map<String, dynamic> payload) async {
+    await _initWebRTC(isOfferer: false);
+    final sdpMap = payload['sdp'] as Map<String, dynamic>;
+    await _pc?.setRemoteDescription(
+        RTCSessionDescription(sdpMap['sdp'] as String?, sdpMap['type'] as String?));
+    final answer = await _pc!.createAnswer();
+    await _pc!.setLocalDescription(answer);
+    _ws.send('webrtc_answer', {
+      'call_id': widget.callId,
+      'target_user_id': _remoteUserId,
+      'sdp': answer.toMap(),
+    });
+  }
+
+  Future<void> _handleAnswer(Map<String, dynamic> payload) async {
+    final sdpMap = payload['sdp'] as Map<String, dynamic>;
+    await _pc?.setRemoteDescription(
+        RTCSessionDescription(sdpMap['sdp'] as String?, sdpMap['type'] as String?));
+  }
+
+  Future<void> _handleIceCandidate(Map<String, dynamic> payload) async {
+    final c = payload['candidate'] as Map<String, dynamic>?;
+    if (c == null || _pc == null) return;
+    await _pc!.addCandidate(RTCIceCandidate(
+      c['candidate'] as String?,
+      c['sdpMid'] as String?,
+      c['sdpMLineIndex'] as int?,
+    ));
+  }
+
+  // â”€â”€ Call control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   void _accept() {
     _ws.send('call_accepted', {
@@ -91,6 +224,7 @@ class _CallScreenState extends State<CallScreen> {
     });
     setState(() => _state = CallState.connected);
     _startTimer();
+    // Callee waits for webrtc_offer from caller (handled in _onWsMessage)
   }
 
   void _decline() {
@@ -103,8 +237,25 @@ class _CallScreenState extends State<CallScreen> {
 
   void _endCall() {
     _ws.endCall(widget.callId, widget.conversationId);
+    _cleanup();
     setState(() => _state = CallState.ended);
     _dismiss(after: const Duration(seconds: 1));
+  }
+
+  void _cleanup() {
+    _timer?.cancel();
+    _pc?.close();
+    _localStream?.dispose();
+  }
+
+  void _toggleMute() {
+    setState(() => _muted = !_muted);
+    _localStream?.getAudioTracks().forEach((t) => t.enabled = !_muted);
+  }
+
+  void _toggleCamera() {
+    setState(() => _cameraOff = !_cameraOff);
+    _localStream?.getVideoTracks().forEach((t) => t.enabled = !_cameraOff);
   }
 
   void _startTimer() {
@@ -113,10 +264,8 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
 
-  void _dismiss({Duration after = Duration.zero}) {
-    _timer?.cancel();
-    Future.delayed(after, () { if (mounted) Navigator.pop(context); });
-  }
+  void _dismiss({Duration after = Duration.zero}) =>
+      Future.delayed(after, () { if (mounted) Navigator.pop(context); });
 
   String get _elapsedLabel {
     final m = _elapsed.inMinutes.toString().padLeft(2, '0');
@@ -126,165 +275,174 @@ class _CallScreenState extends State<CallScreen> {
 
   String get _statusLabel {
     switch (_state) {
-      case CallState.calling:  return 'Calling…';
-      case CallState.ringing:  return 'Incoming ${widget.callType} call';
+      case CallState.calling:
+        return _receiverRinging ? 'Ringing\u2026' : 'Calling\u2026';
+      case CallState.ringing:   return 'Incoming ${widget.callType} call';
       case CallState.connected: return _elapsedLabel;
-      case CallState.ended:    return 'Call ended';
-      case CallState.declined: return 'Call declined';
+      case CallState.ended:     return 'Call ended';
+      case CallState.declined:  return 'Call declined';
     }
   }
 
+  // â”€â”€ UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFF1A1A2E),
-    body: SafeArea(
-      child: Column(
-        children: [
-          const SizedBox(height: 60),
+  Widget build(BuildContext context) {
+    final isVideo = widget.callType == 'video';
 
-          // Remote user avatar
-          CircleAvatar(
-            radius: 60,
-            backgroundColor: AppTheme.primaryLight,
-            backgroundImage: widget.remoteUserPhoto != null
-                ? NetworkImage(widget.remoteUserPhoto!) : null,
-            child: widget.remoteUserPhoto == null
-                ? Text(
-                    widget.remoteUserName.isNotEmpty ? widget.remoteUserName[0].toUpperCase() : '?',
-                    style: const TextStyle(fontSize: 48, color: Colors.white, fontWeight: FontWeight.w600),
-                  )
-                : null,
-          ),
-          const SizedBox(height: 24),
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A2E),
+      body: SafeArea(
+        child: Column(
+          children: [
+            const SizedBox(height: 40),
 
-          Text(widget.remoteUserName,
-            style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 10),
-
-          Text(_statusLabel,
-            style: TextStyle(
-              color: _state == CallState.connected ? Colors.greenAccent : Colors.white60,
-              fontSize: 16,
-            )),
-
-          // Video placeholder (when WebRTC is fully integrated)
-          if (widget.callType == 'video' && _state == CallState.connected) ...[
-            const SizedBox(height: 24),
-            Container(
-              height: 200,
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              decoration: BoxDecoration(
-                color: Colors.black38,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: const Center(
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(Icons.videocam, color: Colors.white38, size: 48),
-                  SizedBox(height: 8),
-                  Text('Video stream appears here\n(WebRTC active)',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white38, fontSize: 13)),
-                ]),
-              ),
-            ),
-          ],
-
-          const Spacer(),
-
-          // In-call controls
-          if (_state == CallState.connected) ...[
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              _CallButton(
-                icon: _muted ? Icons.mic_off : Icons.mic,
-                label: _muted ? 'Unmute' : 'Mute',
-                onTap: () => setState(() => _muted = !_muted),
-                active: _muted,
-              ),
-              _CallButton(
-                icon: _speakerOn ? Icons.volume_up : Icons.volume_down,
-                label: 'Speaker',
-                onTap: () => setState(() => _speakerOn = !_speakerOn),
-                active: _speakerOn,
-              ),
-              if (widget.callType == 'video')
-                _CallButton(
-                  icon: _cameraOff ? Icons.videocam_off : Icons.videocam,
-                  label: 'Camera',
-                  onTap: () => setState(() => _cameraOff = !_cameraOff),
-                  active: _cameraOff,
-                ),
-            ]),
-            const SizedBox(height: 32),
-            // End call button
-            GestureDetector(
-              onTap: _endCall,
-              child: Container(
-                width: 72, height: 72,
-                decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                child: const Icon(Icons.call_end, color: Colors.white, size: 32),
-              ),
-            ),
-          ],
-
-          // Incoming call controls (not yet answered)
-          if (_state == CallState.ringing) ...[
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              // Decline
-              Column(children: [
-                GestureDetector(
-                  onTap: _decline,
-                  child: Container(
-                    width: 72, height: 72,
-                    decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                    child: const Icon(Icons.call_end, color: Colors.white, size: 32),
+            // Video area (video calls in connected state)
+            if (isVideo && _state == CallState.connected)
+              Expanded(
+                child: Stack(children: [
+                  // Remote stream (full)
+                  RTCVideoView(
+                    _remoteRenderer,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text('Decline', style: TextStyle(color: Colors.white60)),
-              ]),
-              // Accept
-              Column(children: [
-                GestureDetector(
-                  onTap: _accept,
-                  child: Container(
-                    width: 72, height: 72,
-                    decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
-                    child: Icon(
-                      widget.callType == 'video' ? Icons.videocam : Icons.call,
-                      color: Colors.white, size: 32,
+                  // Local stream (PiP)
+                  Positioned(
+                    top: 16, right: 16, width: 100, height: 140,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: RTCVideoView(_localRenderer, mirror: true),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text('Accept', style: TextStyle(color: Colors.white60)),
-              ]),
-            ]),
-          ],
-
-          // Outgoing — calling state
-          if (_state == CallState.calling)
-            GestureDetector(
-              onTap: _endCall,
-              child: Container(
-                width: 72, height: 72,
-                decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                child: const Icon(Icons.call_end, color: Colors.white, size: 32),
+                  // Name overlay
+                  Positioned(
+                    top: 16, left: 16,
+                    child: Text(widget.remoteUserName,
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w600, shadows: [
+                        Shadow(color: Colors.black54, blurRadius: 4)
+                      ])),
+                  ),
+                ]),
+              )
+            else ...[
+              CircleAvatar(
+                radius: 60,
+                backgroundColor: AppTheme.primaryLight,
+                backgroundImage: widget.remoteUserPhoto != null
+                    ? NetworkImage(widget.remoteUserPhoto!) : null,
+                child: widget.remoteUserPhoto == null
+                    ? Text(
+                        widget.remoteUserName.isNotEmpty
+                            ? widget.remoteUserName[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                            fontSize: 48, color: Colors.white, fontWeight: FontWeight.w600),
+                      )
+                    : null,
               ),
-            ),
+              const SizedBox(height: 24),
+              Text(widget.remoteUserName,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              Text(_statusLabel,
+                style: TextStyle(
+                  color: _state == CallState.connected
+                      ? Colors.greenAccent : Colors.white60,
+                  fontSize: 16,
+                )),
+              const Spacer(),
+            ],
 
-          const SizedBox(height: 60),
-        ],
+            // Controls
+            if (_state == CallState.connected) ...[
+              Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                _CallButton(
+                  icon: _muted ? Icons.mic_off : Icons.mic,
+                  label: _muted ? 'Unmute' : 'Mute',
+                  onTap: _toggleMute, active: _muted,
+                ),
+                _CallButton(
+                  icon: _speakerOn ? Icons.volume_up : Icons.volume_down,
+                  label: 'Speaker',
+                  onTap: () => setState(() => _speakerOn = !_speakerOn),
+                  active: _speakerOn,
+                ),
+                if (isVideo)
+                  _CallButton(
+                    icon: _cameraOff ? Icons.videocam_off : Icons.videocam,
+                    label: 'Camera',
+                    onTap: _toggleCamera, active: _cameraOff,
+                  ),
+              ]),
+              const SizedBox(height: 32),
+              _EndCallButton(onTap: _endCall),
+              const SizedBox(height: 48),
+            ],
+
+            if (_state == CallState.ringing) ...[
+              Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                Column(children: [
+                  _EndCallButton(onTap: _decline),
+                  const SizedBox(height: 8),
+                  const Text('Decline', style: TextStyle(color: Colors.white60)),
+                ]),
+                Column(children: [
+                  GestureDetector(
+                    onTap: _accept,
+                    child: Container(
+                      width: 72, height: 72,
+                      decoration: const BoxDecoration(
+                          color: Colors.green, shape: BoxShape.circle),
+                      child: Icon(
+                        isVideo ? Icons.videocam : Icons.call,
+                        color: Colors.white, size: 32,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('Accept', style: TextStyle(color: Colors.white60)),
+                ]),
+              ]),
+              const SizedBox(height: 48),
+            ],
+
+            if (_state == CallState.calling) ...[
+              Column(children: [
+                _EndCallButton(onTap: _endCall),
+                const SizedBox(height: 8),
+                const Text('Cancel', style: TextStyle(color: Colors.white60)),
+              ]),
+              const SizedBox(height: 48),
+            ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   @override
   void dispose() {
-    _timer?.cancel();
     _wsSub?.cancel();
+    _cleanup();
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
     super.dispose();
   }
+}
+
+class _EndCallButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _EndCallButton({required this.onTap});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: 72, height: 72,
+      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+      child: const Icon(Icons.call_end, color: Colors.white, size: 32),
+    ),
+  );
 }
 
 class _CallButton extends StatelessWidget {
@@ -311,3 +469,4 @@ class _CallButton extends StatelessWidget {
     ]),
   );
 }
+

@@ -135,6 +135,7 @@ const register = async (req, res) => {
             role = 'ysa_member',
             stake_id, stake_name, stake_country,
             district_id, district_name, district_country,
+            mission_id,
             email, password } = req.body;
 
     if (!phone_number || !full_name || !date_of_birth || !password)
@@ -177,11 +178,11 @@ const register = async (req, res) => {
 
     const result = await query(
       `INSERT INTO users (id,phone_number,full_name,date_of_birth,is_single,role,
-        stake_id,district_id,email,is_approved,status,password_hash)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11)
+        stake_id,district_id,mission_id,email,is_approved,status,password_hash)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'active',$12)
        RETURNING id,full_name,phone_number,role,status,is_approved`,
       [uuidv4(),phone_number,full_name,date_of_birth,is_single,role,
-       resolvedStakeId,resolvedDistrictId,email||null,isApproved,passwordHash]
+       resolvedStakeId,resolvedDistrictId,mission_id||null,email||null,isApproved,passwordHash]
     );
 
     const user = result.rows[0];

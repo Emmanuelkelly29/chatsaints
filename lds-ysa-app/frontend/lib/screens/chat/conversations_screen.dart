@@ -5,6 +5,7 @@ import '../../services/api_service.dart';
 import '../../services/websocket_service.dart';
 import '../../models/conversation_model.dart';
 import '../../theme/app_theme.dart';
+import '../announcements/announcements_screen.dart';
 import 'chat_screen.dart';
 import 'search_screen.dart';
 import 'create_group_screen.dart';
@@ -24,13 +25,15 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   int _scriptureCountdown = 35; // seconds until next refresh
   Timer? _countdownTimer;
   bool _loading = true;
-  final int _notifCount = 3; // placeholder
+  int _unreadAnnouncements = 0;
+  StreamSubscription? _announcementSub;
 
   @override
   void initState() {
     super.initState();
     _load();
     _loadScripture();
+    _loadUnreadAnnouncements();
     _scriptureTimer = Timer.periodic(const Duration(seconds: 35), (_) => _loadScripture());
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
@@ -39,9 +42,25 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       });
       }
     });
-    WebSocketService().messages.listen((msg) {
+    _announcementSub = WebSocketService().messages.listen((msg) {
       if (msg['type'] == 'new_message') _load();
+      if (msg['type'] == 'new_announcement' && mounted) {
+        setState(() => _unreadAnnouncements++);
+      }
     });
+  }
+
+  Future<void> _loadUnreadAnnouncements() async {
+    try {
+      final data = await _api.get('/announcements/unread-count');
+      if (mounted) setState(() => _unreadAnnouncements = data['count'] as int? ?? 0);
+    } catch (_) {}
+  }
+
+  void _openAnnouncements() async {
+    await Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const AnnouncementsScreen()));
+    _loadUnreadAnnouncements();
   }
 
   Future<void> _loadScripture() async {
@@ -219,21 +238,39 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         ]),
       ),
       const Spacer(),
-      // Camera icon
-      _topIcon(Icons.camera_alt_outlined, () {}),
+      // Search icon
+      _topIcon(Icons.search, () {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
+      }),
       const SizedBox(width: 6),
-      // Bell with notification badge
-      Stack(children: [
-        _topIcon(Icons.notifications_outlined, () {}),
-        if (_notifCount > 0)
-          Positioned(right: 0, top: 0,
-            child: Container(
-              padding: const EdgeInsets.all(3),
-              decoration: const BoxDecoration(color: AppTheme.danger, shape: BoxShape.circle),
-              child: Text('$_notifCount', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700)),
+      // Announcements bell with badge
+      GestureDetector(
+        onTap: _openAnnouncements,
+        child: Stack(children: [
+          Container(
+            width: 34, height: 34,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppTheme.primaryLight,
             ),
+            child: const Icon(Icons.notifications_outlined, color: Color(0xFFFFD700), size: 18),
           ),
-      ]),
+          if (_unreadAnnouncements > 0)
+            Positioned(
+              right: 0, top: 0,
+              child: Container(
+                width: 14, height: 14,
+                decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                child: Center(
+                  child: Text(
+                    _unreadAnnouncements > 9 ? '9+' : '$_unreadAnnouncements',
+                    style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ),
+        ]),
+      ),
     ]),
   );
 
@@ -425,6 +462,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   void dispose() {
     _scriptureTimer?.cancel();
     _countdownTimer?.cancel();
+    _announcementSub?.cancel();
     super.dispose();
   }
 }

@@ -191,47 +191,151 @@ router.post('/request', authenticate, requireActive, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /api/ysa-pool/discover — discover YSA from other open pools (grouped by country/continent)
+// GET /api/ysa-pool/discover — discover YSA from all open pools worldwide
 router.get('/discover', authenticate, requireActive, async (req, res, next) => {
   try {
-    if (!req.user.stake_id)
-      return res.status(403).json({ error: 'You are not assigned to a stake' });
-
-    // Check that user's own stake pool is open
-    const stakeCheck = await query(
-      'SELECT ysa_pool_active FROM stakes WHERE id = $1',
-      [req.user.stake_id]
-    );
-    if (!stakeCheck.rows.length || !stakeCheck.rows[0].ysa_pool_active)
-      return res.status(403).json({ error: 'Your stake pool must be open first' });
-
-    // Check user is approved in the pool
-    const selfCheck = await query(
-      'SELECT id FROM stake_pool_members WHERE user_id = $1 AND stake_id = $2 AND approved = true',
-      [req.user.id, req.user.stake_id]
-    );
-    if (!selfCheck.rows.length)
-      return res.status(403).json({ error: 'You must be an approved pool member to browse' });
-
-    // Find all approved members in other open stakes, with country & continent
+    // Find all approved members in open stakes worldwide
     const contacts = await query(
-      `SELECT u.id, u.full_name, u.profile_photo_url, u.role,
-              s.name AS stake_name, s.country,
-              a.continent, a.name AS area_name
+      `SELECT u.id, u.full_name, u.profile_photo_url, u.role, u.gender, u.bio,
+              s.id AS stake_id, s.name AS stake_name, s.country,
+              d.id AS district_id, d.name AS district_name,
+              a.continent, a.name AS area_name,
+              CASE
+                WHEN u.date_of_birth IS NULL THEN NULL
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 18 AND 22 THEN '18-22'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 23 AND 26 THEN '23-26'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 27 AND 30 THEN '27-30'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 31 AND 35 THEN '31-35'
+                ELSE 'YSA'
+              END AS age_range
        FROM stake_pool_members spm
        JOIN users u ON spm.user_id = u.id
        JOIN stakes s ON spm.stake_id = s.id
+       LEFT JOIN districts d ON u.district_id = d.id
        LEFT JOIN coordinating_councils cc ON s.coordinating_council_id = cc.id
        LEFT JOIN areas a ON cc.area_id = a.id
        WHERE s.ysa_pool_active = true
-         AND spm.stake_id != $1
          AND spm.approved = true
          AND u.status = 'active'
          AND u.profile_hidden = false
+         AND u.directory_visible = true
+         AND u.id != $1
        ORDER BY a.continent NULLS LAST, s.country, u.full_name`,
-      [req.user.stake_id]
+      [req.user.id]
     );
     res.json({ contacts: contacts.rows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/ysa-pool/directory-stakes — ALL registered stakes AND districts (source of truth for global directory)
+// Includes units with 0 pool members. Automatically reflects new/renamed/deleted units.
+router.get('/directory-stakes', authenticate, requireActive, async (req, res, next) => {
+  try {
+    const result = await query(
+      `-- Stakes
+       SELECT s.id AS stake_id, s.name AS stake_name, s.country,
+              COALESCE(a.continent, 'Other') AS continent,
+              a.name AS area_name,
+              'stake' AS unit_type,
+              COUNT(DISTINCT CASE
+                WHEN spm.approved = true
+                  AND u.status = 'active'
+                  AND u.profile_hidden = false
+                  AND u.directory_visible = true
+                  AND u.id != $1
+                THEN u.id END) AS member_count
+       FROM stakes s
+       LEFT JOIN coordinating_councils cc ON s.coordinating_council_id = cc.id
+       LEFT JOIN areas a ON cc.area_id = a.id
+       LEFT JOIN stake_pool_members spm ON spm.stake_id = s.id
+       LEFT JOIN users u ON spm.user_id = u.id
+       GROUP BY s.id, s.name, s.country, a.continent, a.name
+
+       UNION ALL
+
+       -- Districts (same structure, same pool table)
+       SELECT d.id AS stake_id, d.name AS stake_name, d.country,
+              COALESCE(a.continent, 'Other') AS continent,
+              a.name AS area_name,
+              'district' AS unit_type,
+              COUNT(DISTINCT CASE
+                WHEN spm.approved = true
+                  AND u.status = 'active'
+                  AND u.profile_hidden = false
+                  AND u.directory_visible = true
+                  AND u.id != $1
+                THEN u.id END) AS member_count
+       FROM districts d
+       LEFT JOIN coordinating_councils cc ON d.coordinating_council_id = cc.id
+       LEFT JOIN areas a ON cc.area_id = a.id
+       LEFT JOIN stake_pool_members spm ON spm.stake_id = d.id
+       LEFT JOIN users u ON spm.user_id = u.id
+       GROUP BY d.id, d.name, d.country, a.continent, a.name
+
+       ORDER BY continent NULLS LAST, country, stake_name`,
+      [req.user.id]
+    );
+    res.json({ stakes: result.rows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/ysa-pool/stake-members/:stakeId — load members for one stake OR district (lazy, on-demand)
+router.get('/stake-members/:stakeId', authenticate, requireActive, async (req, res, next) => {
+  try {
+    const { stakeId } = req.params;
+    // Works for both stake IDs and district IDs — pool table uses same stake_id column
+    const members = await query(
+      `SELECT u.id, u.full_name, u.profile_photo_url, u.role, u.gender, u.bio,
+              spm.stake_id,
+              COALESCE(s.name, d.name) AS stake_name,
+              COALESCE(s.country, d.country) AS country,
+              COALESCE(a_s.continent, a_d.continent) AS continent,
+              CASE
+                WHEN u.date_of_birth IS NULL THEN NULL
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 18 AND 22 THEN '18-22'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 23 AND 26 THEN '23-26'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 27 AND 30 THEN '27-30'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 31 AND 35 THEN '31-35'
+                ELSE 'YSA'
+              END AS age_range
+       FROM stake_pool_members spm
+       JOIN users u ON spm.user_id = u.id
+       LEFT JOIN stakes s ON spm.stake_id = s.id
+       LEFT JOIN coordinating_councils cc_s ON s.coordinating_council_id = cc_s.id
+       LEFT JOIN areas a_s ON cc_s.area_id = a_s.id
+       LEFT JOIN districts d ON spm.stake_id = d.id
+       LEFT JOIN coordinating_councils cc_d ON d.coordinating_council_id = cc_d.id
+       LEFT JOIN areas a_d ON cc_d.area_id = a_d.id
+       WHERE spm.stake_id = $1
+         AND spm.approved = true
+         AND u.status = 'active'
+         AND u.profile_hidden = false
+         AND u.directory_visible = true
+         AND u.id != $2
+       ORDER BY u.full_name`,
+      [stakeId, req.user.id]
+    );
+    res.json({ members: members.rows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/ysa-pool/stakes-list — list all open stakes with YSA count (for directory browsing)
+router.get('/stakes-list', authenticate, requireActive, async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT s.id, s.name, s.country, a.continent, a.name AS area_name,
+              COUNT(spm.id) AS member_count
+       FROM stakes s
+       LEFT JOIN stake_pool_members spm ON spm.stake_id = s.id AND spm.approved = true
+       LEFT JOIN users u ON spm.user_id = u.id AND u.status = 'active' AND u.directory_visible = true
+       LEFT JOIN coordinating_councils cc ON s.coordinating_council_id = cc.id
+       LEFT JOIN areas a ON cc.area_id = a.id
+       WHERE s.ysa_pool_active = true
+       GROUP BY s.id, s.name, s.country, a.continent, a.name
+       ORDER BY a.continent NULLS LAST, s.country, s.name`,
+      []
+    );
+    res.json({ stakes: result.rows });
   } catch (err) { next(err); }
 });
 
@@ -239,20 +343,32 @@ router.get('/discover', authenticate, requireActive, async (req, res, next) => {
 router.get('/global', authenticate, requireActive, async (req, res, next) => {
   try {
     const contacts = await query(
-      `SELECT u.id, u.full_name, u.profile_photo_url, u.role,
-              s.name AS stake_name, s.country,
-              a.continent, a.name AS area_name
+      `SELECT u.id, u.full_name, u.profile_photo_url, u.role, u.gender, u.bio,
+              s.id AS stake_id, s.name AS stake_name, s.country,
+              d.id AS district_id, d.name AS district_name,
+              a.continent, a.name AS area_name,
+              CASE
+                WHEN u.date_of_birth IS NULL THEN NULL
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 18 AND 22 THEN '18-22'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 23 AND 26 THEN '23-26'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 27 AND 30 THEN '27-30'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 31 AND 35 THEN '31-35'
+                ELSE 'YSA'
+              END AS age_range
        FROM stake_pool_members spm
        JOIN users u ON spm.user_id = u.id
        JOIN stakes s ON spm.stake_id = s.id
+       LEFT JOIN districts d ON u.district_id = d.id
        LEFT JOIN coordinating_councils cc ON s.coordinating_council_id = cc.id
        LEFT JOIN areas a ON cc.area_id = a.id
        WHERE s.ysa_pool_active = true
          AND spm.approved = true
          AND u.status = 'active'
          AND u.profile_hidden = false
+         AND u.directory_visible = true
+         AND u.id != $1
        ORDER BY a.continent NULLS LAST, s.country, u.full_name`,
-      []
+      [req.user.id]
     );
     res.json({ contacts: contacts.rows });
   } catch (err) { next(err); }
@@ -283,14 +399,22 @@ router.get('/my-stake', authenticate, requireActive, async (req, res, next) => {
 
     // Get all approved members in this stake
     const membersRes = await query(
-      `SELECT u.id, u.full_name, u.profile_photo_url, u.role,
-              spm.approved_at,
-              u.status
+      `SELECT u.id, u.full_name, u.profile_photo_url, u.role, u.gender, u.bio,
+              spm.approved_at, u.status,
+              CASE
+                WHEN u.date_of_birth IS NULL THEN NULL
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 18 AND 22 THEN '18-22'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 23 AND 26 THEN '23-26'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 27 AND 30 THEN '27-30'
+                WHEN EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 31 AND 35 THEN '31-35'
+                ELSE 'YSA'
+              END AS age_range
        FROM stake_pool_members spm
        JOIN users u ON spm.user_id = u.id
        WHERE spm.stake_id = $1
          AND spm.approved = true
          AND u.status = 'active'
+         AND u.directory_visible = true
        ORDER BY u.full_name`,
       [req.user.stake_id]
     );

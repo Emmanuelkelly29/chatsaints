@@ -18,8 +18,12 @@ class ConversationsScreen extends StatefulWidget {
 
 class _ConversationsScreenState extends State<ConversationsScreen> {
   final _api = ApiService();
+  final _scrollCtrl = ScrollController();
   List<ConversationModel> _pinned = [];
   List<ConversationModel> _all = [];
+  List<Map<String, dynamic>> _incomingRequests = [];
+  List<Map<String, dynamic>> _sentRequests = [];
+  int _outgoingRequests = 0;
   Map<String, dynamic>? _scripture;
   Timer? _scriptureTimer;
   int _scriptureCountdown = 35; // seconds until next refresh
@@ -65,15 +69,16 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
   Future<void> _loadScripture() async {
     try {
-      final res = await _api.get('/scriptures/current');
+      final res = await _api.get('/scriptures/random');
       if (mounted) setState(() { _scripture = res; _scriptureCountdown = 35; });
     } catch (_) {}
   }
 
   Future<void> _load() async {
     try {
-      final allRes    = await _api.get('/conversations');
-      final pinnedRes = await _api.get('/conversations/pinned');
+      final allRes      = await _api.get('/conversations');
+      final pinnedRes   = await _api.get('/conversations/pinned');
+      final requestRes  = await _api.get('/contact-requests');
       if (!mounted) return;
       setState(() {
         _all    = (allRes['data'] as List? ?? allRes.values.first as List? ?? [allRes])
@@ -82,9 +87,38 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         _pinned = (pinnedRes['data'] as List? ?? [])
             .whereType<Map<String,dynamic>>()
             .map((j) => ConversationModel.fromJson(j)).toList();
+        _incomingRequests = (requestRes['incoming'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .toList();
+        _sentRequests = (requestRes['outgoing'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .toList();
+        _outgoingRequests = requestRes['outgoing_count'] as int? ?? 0;
         _loading = false;
       });
     } catch (_) { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<void> _acceptRequest(Map<String, dynamic> requestData) async {
+    try {
+      final res = await _api.post('/contact-requests/${requestData['id']}/accept', {});
+      if (!mounted) return;
+      await _load();
+      final conversation = ConversationModel.fromJson(
+        Map<String, dynamic>.from(res['conversation'] as Map? ?? const {}),
+      );
+      if (conversation.id.isNotEmpty) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ChatScreen(conversation: conversation)),
+        );
+      }
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: AppTheme.danger),
+      );
+    }
   }
 
   Future<void> _pin(String id) async {
@@ -118,6 +152,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               backgroundColor: AppTheme.surface,
               onRefresh: _load,
               child: CustomScrollView(
+                controller: _scrollCtrl,
                 slivers: [
                   // ── Top bar ──
                   SliverToBoxAdapter(child: _buildTopBar()),
@@ -125,6 +160,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   SliverToBoxAdapter(child: _buildScriptureCard()),
                   // ── Search bar ──
                   SliverToBoxAdapter(child: _buildSearchBar()),
+                  if (_incomingRequests.isNotEmpty || _outgoingRequests > 0)
+                    SliverToBoxAdapter(child: _buildRequestsBadge()),
                   // ── Pinned section ──────────────────────────────────
                   if (_pinned.isNotEmpty) ...[
                     SliverToBoxAdapter(
@@ -243,6 +280,35 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
       }),
       const SizedBox(width: 6),
+      // Incoming connection requests badge
+      GestureDetector(
+        onTap: _showRequestsModal,
+        child: Stack(children: [
+          Container(
+            width: 34, height: 34,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppTheme.primaryLight,
+            ),
+            child: const Icon(Icons.person_add_outlined, color: AppTheme.accent, size: 18),
+          ),
+          if (_incomingRequests.isNotEmpty)
+            Positioned(
+              right: 0, top: 0,
+              child: Container(
+                width: 14, height: 14,
+                decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                child: Center(
+                  child: Text(
+                    _incomingRequests.length > 9 ? '9+' : '${_incomingRequests.length}',
+                    style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ),
+        ]),
+      ),
+      const SizedBox(width: 6),
       // Announcements bell with badge
       GestureDetector(
         onTap: _openAnnouncements,
@@ -273,6 +339,279 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       ),
     ]),
   );
+
+  // ── Compact requests badge (shown above pinned if there are requests) ──
+  Widget _buildRequestsBadge() => GestureDetector(
+    onTap: _showRequestsModal,
+    child: Container(
+      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _incomingRequests.isNotEmpty
+              ? Colors.green.withOpacity(0.4)
+              : AppTheme.divider),
+      ),
+      child: Row(children: [
+        Container(
+          width: 34, height: 34,
+          decoration: BoxDecoration(
+            color: _incomingRequests.isNotEmpty
+                ? Colors.green.withOpacity(0.15)
+                : AppTheme.primaryLight,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.people_outline,
+            color: _incomingRequests.isNotEmpty ? Colors.greenAccent : AppTheme.accent,
+            size: 17),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+            _incomingRequests.isNotEmpty
+                ? '${_incomingRequests.length} incoming connection request${_incomingRequests.length == 1 ? "" : "s"}'
+                : 'Connection Requests',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          if (_outgoingRequests > 0)
+            Text('$_outgoingRequests sent · pending reply',
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
+        ])),
+        const Icon(Icons.chevron_right, color: Colors.white24, size: 18),
+      ]),
+    ),
+  );
+
+  // ── Tabbed requests modal ──
+  void _showRequestsModal() {
+    _load();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        final incoming = List<Map<String, dynamic>>.from(_incomingRequests);
+        final sent = List<Map<String, dynamic>>.from(_sentRequests);
+        return StatefulBuilder(
+          builder: (ctx, setSheet) => Container(
+            height: MediaQuery.of(ctx).size.height * 0.78,
+            decoration: const BoxDecoration(
+              color: AppTheme.background,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: DefaultTabController(
+              length: 2,
+              child: Column(children: [
+                // Drag handle
+                Container(
+                  margin: const EdgeInsets.only(top: 10),
+                  width: 36, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                ),
+                // Title row
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 8, 0),
+                  child: Row(children: [
+                    const Icon(Icons.people_outline, color: AppTheme.accent, size: 18),
+                    const SizedBox(width: 8),
+                    const Text('Connection Requests',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white54, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 4),
+                // Tab bar
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TabBar(
+                    tabs: [
+                      Tab(text: 'Incoming (${incoming.length})'),
+                      Tab(text: 'Sent (${sent.length})'),
+                    ],
+                    indicator: BoxDecoration(
+                      color: AppTheme.accent.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    dividerColor: Colors.transparent,
+                    labelColor: AppTheme.accent,
+                    unselectedLabelColor: Colors.white38,
+                    labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Divider(color: Colors.white10, height: 1),
+                // Tab content
+                Expanded(child: TabBarView(children: [
+                  // ── Incoming tab ──
+                  incoming.isEmpty
+                    ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.inbox_outlined, size: 52, color: Colors.white12),
+                        SizedBox(height: 12),
+                        Text('No incoming requests', style: TextStyle(color: Colors.white38, fontSize: 14)),
+                      ]))
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                        itemCount: incoming.length,
+                        itemBuilder: (_, i) {
+                          final r = incoming[i];
+                          final name = r['full_name'] as String? ?? 'Unknown';
+                          final stake = r['stake_name'] as String?;
+                          final role = r['role'] as String? ?? '';
+                          final photo = r['profile_photo_url'] as String?;
+                          final intro = r['intro_message'] as String?;
+                          final id = r['id'].toString();
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surface,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.green.withOpacity(0.25)),
+                            ),
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Row(children: [
+                                CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: AppTheme.primaryLight,
+                                  backgroundImage: (photo != null && photo.isNotEmpty)
+                                      ? NetworkImage(photo) : null,
+                                  child: (photo == null || photo.isEmpty)
+                                    ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                        style: const TextStyle(color: Colors.white,
+                                          fontWeight: FontWeight.bold, fontSize: 16))
+                                    : null,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text(name, style: const TextStyle(
+                                    color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+                                  Text(
+                                    stake?.isNotEmpty == true ? '$role • $stake' : role,
+                                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                                ])),
+                              ]),
+                              if (intro != null && intro.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.background,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text('"$intro"', style: const TextStyle(
+                                    color: Colors.white60, fontSize: 12,
+                                    fontStyle: FontStyle.italic, height: 1.4)),
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              Row(children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () async {
+                                      try {
+                                        await _api.post('/contact-requests/$id/decline', {});
+                                        if (!ctx.mounted) return;
+                                        setSheet(() => incoming.removeWhere(
+                                          (x) => x['id'].toString() == id));
+                                        _load();
+                                      } catch (_) {}
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.redAccent,
+                                      side: const BorderSide(color: Colors.redAccent, width: 0.5),
+                                    ),
+                                    child: const Text('Decline'),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      _acceptRequest(r);
+                                    },
+                                    child: const Text('Accept'),
+                                  ),
+                                ),
+                              ]),
+                            ]),
+                          );
+                        },
+                      ),
+                  // ── Sent tab ──
+                  sent.isEmpty
+                    ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.send_outlined, size: 52, color: Colors.white12),
+                        SizedBox(height: 12),
+                        Text('No sent requests pending', style: TextStyle(color: Colors.white38, fontSize: 14)),
+                      ]))
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                        itemCount: sent.length,
+                        itemBuilder: (_, i) {
+                          final r = sent[i];
+                          final name = r['full_name'] as String? ?? 'Unknown';
+                          final stake = r['stake_name'] as String?;
+                          final photo = r['profile_photo_url'] as String?;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surface,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: AppTheme.divider),
+                            ),
+                            child: Row(children: [
+                              CircleAvatar(
+                                radius: 20,
+                                backgroundColor: AppTheme.primaryLight,
+                                backgroundImage: (photo != null && photo.isNotEmpty)
+                                    ? NetworkImage(photo) : null,
+                                child: (photo == null || photo.isEmpty)
+                                  ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                      style: const TextStyle(color: Colors.white, fontSize: 14))
+                                  : null,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(name, style: const TextStyle(
+                                  color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                                if (stake != null && stake.isNotEmpty)
+                                  Text(stake, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                              ])),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text('Pending', style: TextStyle(
+                                  color: Colors.amber, fontSize: 10, fontWeight: FontWeight.w600)),
+                              ),
+                            ]),
+                          );
+                        },
+                      ),
+                ])),
+              ]),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Widget _topIcon(IconData icon, VoidCallback onTap) => GestureDetector(
     onTap: onTap,
@@ -462,8 +801,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   void dispose() {
     _scriptureTimer?.cancel();
     _countdownTimer?.cancel();
-    _announcementSub?.cancel();
-    super.dispose();
+    _announcementSub?.cancel();    _scrollCtrl.dispose();    super.dispose();
   }
 }
 

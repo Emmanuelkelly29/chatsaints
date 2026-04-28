@@ -55,7 +55,7 @@ const deactivateMissionaryMode = async (req, res) => {
       return res.status(403).json({ error: 'Insufficient permissions' });
 
     const userResult = await query(
-      'SELECT age, stake_id, full_name FROM users WHERE id=$1', [user_id]);
+      'SELECT EXTRACT(YEAR FROM AGE(date_of_birth))::INTEGER as age, stake_id, full_name FROM users WHERE id=$1', [user_id]);
     if (!userResult.rows.length) return res.status(404).json({ error: 'User not found' });
     const { age, stake_id, full_name } = userResult.rows[0];
 
@@ -103,8 +103,10 @@ const getMissionMembers = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
 
     const result = await query(
-      `SELECT u.id, u.full_name, u.phone_number, u.profile_photo_url,
-              u.missionary_start_date, u.status, u.age, u.maas360_enrolled
+          `SELECT u.id, u.full_name, u.phone_number, u.profile_photo_url,
+            u.missionary_start_date, u.status,
+            EXTRACT(YEAR FROM AGE(u.date_of_birth))::INTEGER as age,
+            u.maas360_enrolled
        FROM users u
        WHERE u.mission_id=$1 AND u.role='missionary'
        ORDER BY u.full_name`,

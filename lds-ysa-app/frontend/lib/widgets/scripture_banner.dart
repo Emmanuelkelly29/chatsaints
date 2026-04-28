@@ -34,7 +34,7 @@ class _ScriptureBannerState extends State<ScriptureBanner>
 
   Future<void> _load() async {
     try {
-      final res = await _api.get('/scriptures/current');
+      final res = await _api.get('/scriptures/random');
       if (!mounted) return;
       await _fadeCtrl.reverse();
       setState(() => _scripture = res);

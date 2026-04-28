@@ -34,6 +34,88 @@ class _SearchScreenState extends State<SearchScreen> {
     } catch (_) { if (mounted) setState(() => _loading = false); }
   }
 
+  Future<String?> _promptIntro(UserModel user) async {
+    final controller = TextEditingController();
+    final intro = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Request ${user.fullName}'),
+        content: TextField(
+          controller: controller,
+          maxLength: 180,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'Add a short introduction (optional)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Send Request'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return intro;
+  }
+
+  Future<void> _sendConnectionRequest(UserModel user) async {
+    final intro = await _promptIntro(user);
+    if (intro == null || !mounted) return;
+
+    try {
+      final res = await _api.post('/contact-requests', {
+        'target_user_id': user.id,
+        'intro_message': intro,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message']?.toString() ?? 'Connection request sent'),
+          backgroundColor: AppTheme.success,
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: AppTheme.danger),
+      );
+    }
+  }
+
+  Future<void> _openOrRequest(UserModel user) async {
+    try {
+      final res = await _api.post('/conversations/1on1', {
+        'target_user_id': user.id,
+      });
+      if (!mounted) return;
+      final conv = ConversationModel.fromJson(res);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      if (error.statusCode == 403 && error.data?['requires_request'] == true) {
+        await _sendConnectionRequest(user);
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: AppTheme.danger),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not start chat: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Search People')),
@@ -96,25 +178,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       trailing: u.stakeName != null
                           ? Text(u.stakeName!, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary))
                           : null,
-                      onTap: () async {
-                        try {
-                          final res = await _api.post('/conversations/1on1', {
-                            'target_user_id': u.id,
-                          });
-                          if (!mounted) return;
-                          final conv = ConversationModel.fromJson(res);
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)),
-                          );
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Could not start chat: $e')),
-                            );
-                          }
-                        }
-                      },
+                      onTap: () => _openOrRequest(u),
                     );
                   },
                 ),

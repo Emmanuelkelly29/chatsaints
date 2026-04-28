@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../services/api_service.dart';
@@ -18,7 +18,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _nameCtrl  = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _bioCtrl   = TextEditingController();
-  File? _newPhoto;
+  XFile? _newPhoto;
+  Uint8List? _newPhotoBytes;
   bool _saving = false;
 
   @override
@@ -32,7 +33,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<void> _pickPhoto() async {
     final xf = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (xf != null) setState(() => _newPhoto = File(xf.path));
+    if (xf == null) return;
+    final bytes = await xf.readAsBytes();
+    if (!mounted) return;
+    setState(() {
+      _newPhoto = xf;
+      _newPhotoBytes = bytes;
+    });
   }
 
   Future<void> _save() async {
@@ -40,7 +47,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       String? photoUrl;
       if (_newPhoto != null) {
-        final res = await _api.uploadFile('/media/upload', _newPhoto!);
+        final res = await _api.uploadXFile('/media/upload', _newPhoto!);
         photoUrl = res['url'] as String?;
       }
 
@@ -72,9 +79,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = _auth.currentUser;
-    final currentPhoto = user?.profilePhotoUrl != null
-        ? '${AppConstants.uploadsBase}/${user!.profilePhotoUrl!.split('/').last}'
-        : null;
+    final currentPhoto = _resolvePhotoUrl(user?.profilePhotoUrl);
+    ImageProvider? avatarImage;
+    if (_newPhotoBytes != null) {
+      avatarImage = MemoryImage(_newPhotoBytes!);
+    } else if (currentPhoto != null) {
+      avatarImage = NetworkImage(currentPhoto);
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -97,9 +108,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             CircleAvatar(
               radius: 52,
               backgroundColor: AppTheme.primaryLight,
-              backgroundImage: _newPhoto != null
-                  ? FileImage(_newPhoto!) as ImageProvider
-                  : (currentPhoto != null ? NetworkImage(currentPhoto) : null),
+              backgroundImage: avatarImage,
               child: (_newPhoto == null && currentPhoto == null)
                   ? Text((user?.fullName ?? '?')[0].toUpperCase(),
                       style: const TextStyle(fontSize: 40, color: Colors.white, fontWeight: FontWeight.w600))
@@ -163,6 +172,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ]),
       ),
     );
+  }
+
+  String? _resolvePhotoUrl(String? rawUrl) {
+    if (rawUrl == null || rawUrl.isEmpty) return null;
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) return rawUrl;
+    return '${AppConstants.uploadsBase}/${rawUrl.split('/').last}';
   }
 
   @override

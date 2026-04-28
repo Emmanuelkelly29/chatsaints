@@ -7,6 +7,28 @@ const nodemailer = require('nodemailer');
 const { query } = require('../config/database');
 const { requiresLeaderApproval } = require('../utils/accessControl');
 
+/**
+ * Returns all phone number variants to try during lookup.
+ * Handles old accounts stored as "0XXXXXXXXX" (Nigerian local format)
+ * and new accounts stored with country code e.g. "+234XXXXXXXXX".
+ */
+function phoneVariants(phone) {
+  const variants = new Set([phone]);
+  if (phone.startsWith('+')) {
+    // International format → also try local 0-prefix variants
+    // Strip country code (try 1, 2, 3 digit codes) and prepend 0
+    const digits = phone.slice(1); // remove leading +
+    for (const codeLen of [3, 2, 1]) {
+      const local = digits.slice(codeLen);
+      if (local.length >= 7) variants.add('0' + local);
+    }
+  } else if (phone.startsWith('0') && phone.length >= 10) {
+    // Local 0-prefix → also try with +234 (Nigeria, most common case)
+    variants.add('+234' + phone.slice(1));
+  }
+  return [...variants];
+}
+
 const generateToken = (userId) =>
   jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 
@@ -38,7 +60,8 @@ const sendOtp = async (req, res) => {
     let storeKey;
 
     if (isPhone) {
-      user = await query('SELECT id FROM users WHERE phone_number = $1', [phone_number]);
+      const variants = phoneVariants(phone_number.trim());
+      user = await query('SELECT id FROM users WHERE phone_number = ANY($1)', [variants]);
       if (!user.rows.length)
         return res.status(404).json({ error: 'No account found with that phone number' });
       storeKey = `phone:${phone_number}`;
@@ -106,10 +129,11 @@ const verifyOtp = async (req, res) => {
 
     let result;
     if (isPhone) {
+      const variants = phoneVariants(phone_number.trim());
       result = await query(
         `SELECT id,full_name,phone_number,email,role,status,is_approved,
                 stake_id,mission_id,missionary_mode_active,profile_hidden
-         FROM users WHERE phone_number = $1`, [phone_number]);
+         FROM users WHERE phone_number = ANY($1)`, [variants]);
     } else {
       result = await query(
         `SELECT id,full_name,phone_number,email,role,status,is_approved,
@@ -141,7 +165,13 @@ const register = async (req, res) => {
     if (!phone_number || !full_name || !date_of_birth || !password)
       return res.status(400).json({ error: 'phone_number, full_name, date_of_birth and password are required' });
 
-    const existing = await query('SELECT id FROM users WHERE phone_number = $1', [phone_number]);
+    // New accounts must include a country code
+    if (!phone_number.startsWith('+'))
+      return res.status(400).json({ error: 'Phone number must include a country code (e.g. +234...)' });
+
+    // Duplicate check across all format variants (catches 0-prefix legacy accounts)
+    const variants = phoneVariants(phone_number.trim());
+    const existing = await query('SELECT id FROM users WHERE phone_number = ANY($1)', [variants]);
     if (existing.rows.length) return res.status(409).json({ error: 'Phone number already registered' });
 
     // Resolve stake — leaders may provide a name (find-or-create), members provide an id
@@ -210,10 +240,12 @@ const login = async (req, res) => {
     const { phone_number, password } = req.body;
     if (!phone_number || !password) return res.status(400).json({ error: 'phone_number and password required' });
 
+    // Try all phone format variants so legacy 0-prefix accounts still work
+    const variants = phoneVariants(phone_number.trim());
     const result = await query(
       `SELECT id,full_name,phone_number,email,role,status,is_approved,
               stake_id,mission_id,missionary_mode_active,profile_hidden,password_hash
-       FROM users WHERE phone_number = $1`, [phone_number]);
+       FROM users WHERE phone_number = ANY($1)`, [variants]);
 
     if (!result.rows.length) return res.status(401).json({ error: 'Invalid credentials' });
     const user = result.rows[0];

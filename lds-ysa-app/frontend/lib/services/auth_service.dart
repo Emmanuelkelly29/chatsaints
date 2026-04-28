@@ -56,9 +56,13 @@ class AuthService {
       if (email != null) 'email': email,
     });
     await _api.saveToken(res['token']);
-    _currentUser = UserModel.fromJson(res['user']);
-    await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
-    return _currentUser!;
+    try {
+      return await refreshMe();
+    } catch (_) {
+      _currentUser = UserModel.fromJson(res['user']);
+      await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
+      return _currentUser!;
+    }
   }
 
   Future<UserModel> loginWithEmailOtp({
@@ -70,9 +74,13 @@ class AuthService {
       'otp': otp,
     });
     await _api.saveToken(res['token']);
-    _currentUser = UserModel.fromJson(res['user']);
-    await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
-    return _currentUser!;
+    try {
+      return await refreshMe();
+    } catch (_) {
+      _currentUser = UserModel.fromJson(res['user']);
+      await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
+      return _currentUser!;
+    }
   }
 
   Future<UserModel> loginWithPhoneOtp({
@@ -84,9 +92,13 @@ class AuthService {
       'otp': otp,
     });
     await _api.saveToken(res['token']);
-    _currentUser = UserModel.fromJson(res['user']);
-    await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
-    return _currentUser!;
+    try {
+      return await refreshMe();
+    } catch (_) {
+      _currentUser = UserModel.fromJson(res['user']);
+      await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
+      return _currentUser!;
+    }
   }
 
   Future<UserModel> login({
@@ -98,9 +110,13 @@ class AuthService {
       'password': password,
     });
     await _api.saveToken(res['token']);
-    _currentUser = UserModel.fromJson(res['user']);
-    await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
-    return _currentUser!;
+    try {
+      return await refreshMe();
+    } catch (_) {
+      _currentUser = UserModel.fromJson(res['user']);
+      await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
+      return _currentUser!;
+    }
   }
 
   Future<void> logout() async {

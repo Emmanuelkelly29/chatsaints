@@ -125,9 +125,26 @@ const requiresLeaderApproval = (role) => APPROVAL_REQUIRED_ROLES.has(role);
 
 const minApproverTierFor = (role) => ROLE_TIER[role] || 0;
 
+const canReceiveContactRequest = (sender, recipient, preference = 'approved_pool') => {
+  if (!sender || !recipient) return false;
+  if (sender.id === recipient.id) return false;
+  if (!canChat1on1(sender, recipient)) return false;
+
+  switch (preference) {
+    case 'same_stake':
+      return !!sender.stake_id && sender.stake_id === recipient.stake_id;
+    case 'nobody':
+      return false;
+    case 'approved_pool':
+    default:
+      return true;
+  }
+};
+
 module.exports = {
   ROLE_TIER, HIDDEN_ROLES,
   canViewProfile, canSearchUser, canChat1on1,
   canAccessStakePool, canJoinGroup, isMissionaryLocked,
   getUserFeatureFlags, requiresLeaderApproval, minApproverTierFor,
+  canReceiveContactRequest,
 };

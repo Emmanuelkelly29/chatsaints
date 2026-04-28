@@ -39,6 +39,7 @@ app.use('/api/geography',      require('./routes/geography'));
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/users',          require('./routes/users'));
 app.use('/api/conversations',  require('./routes/conversations'));
+app.use('/api/contact-requests', require('./routes/contactRequests'));
 app.use('/api/calls',          require('./routes/calls'));
 app.use('/api/messages',       require('./routes/messages'));
 app.use('/api/notifications',  require('./routes/notifications'));

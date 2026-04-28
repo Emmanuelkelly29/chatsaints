@@ -110,6 +110,9 @@ class WebSocketService {
   void muteParticipant(String meetingId, String targetUserId) =>
       send('mute_participant', {'meeting_id': meetingId, 'target_user_id': targetUserId});
 
+  void notifyScreenShare(String meetingId, {required bool sharing}) =>
+      send('toggle_screen_share', {'meeting_id': meetingId, 'sharing': sharing});
+
   void approveJoinRequest(String meetingId, String targetUserId) =>
       send('approve_join_request', {'meeting_id': meetingId, 'target_user_id': targetUserId});
 

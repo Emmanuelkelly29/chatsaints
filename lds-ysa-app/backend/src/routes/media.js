@@ -3,7 +3,7 @@ const router = require('express').Router();
 const multer = require('multer');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { authenticate, requireApproved } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, process.env.LOCAL_UPLOAD_PATH || './uploads'),
@@ -26,7 +26,7 @@ const upload = multer({
 });
 
 // POST /api/media/upload
-router.post('/upload', authenticate, requireApproved, upload.single('file'), (req, res) => {
+router.post('/upload', authenticate, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded or file type not allowed' });
   const url = `/uploads/${req.file.filename}`;
   return res.json({

@@ -11,7 +11,9 @@ class PrivacySettingsScreen extends StatefulWidget {
 class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   final _api = ApiService();
   bool _stealth = false;
+  bool _directoryVisible = true;
   String _defaultVis = 'contacts_only';
+  String _contactPref = 'approved_pool';
   bool _loading = true;
   bool _saving = false;
 
@@ -25,6 +27,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
         setState(() {
         _stealth    = res['stealth_status_view'] ?? false;
         _defaultVis = res['status_visibility_default'] ?? 'contacts_only';
+        _directoryVisible = res['directory_visible'] ?? true;
+        _contactPref = res['contact_request_preference'] ?? 'approved_pool';
         _loading    = false;
       });
       }
@@ -37,6 +41,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       await _api.patch('/settings/privacy', {
         'stealth_status_view':      _stealth,
         'status_visibility_default': _defaultVis,
+        'directory_visible': _directoryVisible,
+        'contact_request_preference': _contactPref,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -94,6 +100,31 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   value: opt.$1,
                   groupValue: _defaultVis,
                   onChanged: (v) => setState(() => _defaultVis = v!),
+                  activeColor: AppTheme.accent,
+                  title: Text(opt.$2),
+                  subtitle: Text(opt.$3, style: const TextStyle(fontSize: 12)),
+                )),
+              ])),
+              const SizedBox(height: 20),
+              const Text('CONNECTION REQUESTS', style: TextStyle(fontSize: 11,
+                  fontWeight: FontWeight.w700, color: AppTheme.textSecondary, letterSpacing: 1.2)),
+              const SizedBox(height: 12),
+              Card(child: Column(children: [
+                SwitchListTile(
+                  value: _directoryVisible,
+                  onChanged: (v) => setState(() => _directoryVisible = v),
+                  activeThumbColor: AppTheme.accent,
+                  title: const Text('Show my profile in discovery', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('When off, people will not find you in worldwide or stake discovery lists'),
+                ),
+                ...[
+                  ('approved_pool', 'Approved pool members', 'Anyone who can see you in the approved directory must still request permission first'),
+                  ('same_stake', 'Same stake only', 'Only people in your same stake may send a connection request'),
+                  ('nobody', 'Nobody', 'Do not allow new connection requests at all'),
+                ].map((opt) => RadioListTile<String>(
+                  value: opt.$1,
+                  groupValue: _contactPref,
+                  onChanged: _directoryVisible ? (v) => setState(() => _contactPref = v!) : null,
                   activeColor: AppTheme.accent,
                   title: Text(opt.$2),
                   subtitle: Text(opt.$3, style: const TextStyle(fontSize: 12)),

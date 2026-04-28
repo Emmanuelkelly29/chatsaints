@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/websocket_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/phone_country_field.dart';
 import 'register_screen.dart';
 import '../home/home_screen.dart';
 
@@ -19,6 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passCtrl  = TextEditingController();
   final _otpCtrl   = TextEditingController();
   final _emailCtrl = TextEditingController();
+  String _fullPhoneNumber = '+1'; // updated by PhoneCountryField
   bool _loading      = false;
   bool _otpSent      = false;
   bool _showOtpField = false;
@@ -51,7 +52,11 @@ class _LoginScreenState extends State<LoginScreen> {
         otp: otp,
       );
       final token = await ApiService().getToken();
-      if (token != null) WebSocketService().connect(token);
+      if (token != null) {
+        try {
+          WebSocketService().connect(token);
+        } catch (_) {}
+      }
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } catch (e) {
@@ -63,15 +68,20 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ─── Phone + Password Login ───────────────────────────────────────────────
   Future<void> _loginWithPhone() async {
-    final phone = _phoneCtrl.text.trim();
+    final local = _phoneCtrl.text.trim();
+    final phone = _fullPhoneNumber.trim();
     final pass  = _passCtrl.text;
-    if (phone.isEmpty) { _snack('Please enter your phone number'); return; }
+    if (local.isEmpty) { _snack('Please enter your phone number'); return; }
     if (pass.isEmpty)  { _snack('Please enter your password'); return; }
     setState(() => _loading = true);
     try {
       await AuthService().login(phoneNumber: phone, password: pass);
       final token = await ApiService().getToken();
-      if (token != null) WebSocketService().connect(token);
+      if (token != null) {
+        try {
+          WebSocketService().connect(token);
+        } catch (_) {}
+      }
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } catch (e) {
@@ -418,30 +428,10 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
       const SizedBox(height: 10),
-      TextField(
+      PhoneCountryField(
         controller: _phoneCtrl,
-        keyboardType: TextInputType.phone,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          prefixIcon: Padding(
-            padding: const EdgeInsets.only(left: 12, right: 8),
-            child: Text('+1', style: TextStyle(
-              color: Colors.white.withOpacity(0.7), fontSize: 16)),
-          ),
-          prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-          hintText: '(801) 555-2847',
-          hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
-          filled: true,
-          fillColor: AppTheme.primaryLight,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: AppTheme.accent.withOpacity(0.3)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: AppTheme.accent.withOpacity(0.3)),
-          ),
-        ),
+        hintText: '555-2847',
+        onChanged: (full) => _fullPhoneNumber = full,
       ),
       const SizedBox(height: 16),
       Align(

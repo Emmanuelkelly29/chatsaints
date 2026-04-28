@@ -500,20 +500,45 @@ class _CreateTabState extends State<_CreateTab> {
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _keyCtrl = TextEditingController();
+  final _coHostSearchCtrl = TextEditingController();
   bool _requiresApproval = false;
   bool _allowLink = true;
   int _maxParticipants = 100;
   bool _showKey = false;
   bool _loading = false;
+  bool _searchingCoHosts = false;
   String? _generatedCode;
   String? _generatedLink;
+  List<Map<String, dynamic>> _coHostResults = [];
+  final List<Map<String, dynamic>> _selectedCoHosts = [];
 
   @override
   void dispose() {
     _titleCtrl.dispose();
     _descCtrl.dispose();
     _keyCtrl.dispose();
+    _coHostSearchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _searchCoHosts(String q) async {
+    if (q.trim().length < 2) {
+      setState(() => _coHostResults = []);
+      return;
+    }
+    setState(() => _searchingCoHosts = true);
+    try {
+      final data = await ApiService().get('/users/search?q=${Uri.encodeComponent(q.trim())}');
+      final list = (data['data'] as List? ?? []).cast<Map<String, dynamic>>();
+      setState(() {
+        _coHostResults = list
+            .where((u) => !_selectedCoHosts.any((s) => s['id'] == u['id']))
+            .toList();
+        _searchingCoHosts = false;
+      });
+    } catch (_) {
+      setState(() => _searchingCoHosts = false);
+    }
   }
 
   Future<void> _submit() async {
@@ -529,6 +554,8 @@ class _CreateTabState extends State<_CreateTab> {
         'requires_approval': _requiresApproval,
         'allow_link_join': _allowLink,
         'max_participants': _maxParticipants,
+        if (_selectedCoHosts.isNotEmpty)
+          'co_host_ids': _selectedCoHosts.map((u) => u['id']).toList(),
       });
       if (mounted) {
         setState(() {
@@ -774,6 +801,88 @@ class _CreateTabState extends State<_CreateTab> {
                 ],
               ),
             ),
+            const SizedBox(height: 24),
+
+            // ── Co-hosts section ──
+            const Divider(),
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.supervisor_account_outlined, size: 18),
+              const SizedBox(width: 8),
+              const Text('Co-Hosts (optional)',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+              const SizedBox(width: 6),
+              Tooltip(
+                message: 'Co-hosts can approve, mute, and manage the meeting '
+                    'even if you leave or disconnect.',
+                child: Icon(Icons.info_outline, size: 16, color: Colors.grey[400]),
+              ),
+            ]),
+            const SizedBox(height: 8),
+
+            // Selected co-hosts chips
+            if (_selectedCoHosts.isNotEmpty)
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _selectedCoHosts.map((u) => Chip(
+                  avatar: const Icon(Icons.person, size: 16),
+                  label: Text(u['full_name'] ?? 'User'),
+                  onDeleted: () =>
+                      setState(() => _selectedCoHosts.removeWhere((s) => s['id'] == u['id'])),
+                  deleteIcon: const Icon(Icons.close, size: 16),
+                )).toList(),
+              ),
+            const SizedBox(height: 8),
+
+            TextField(
+              controller: _coHostSearchCtrl,
+              decoration: InputDecoration(
+                labelText: 'Search members to add as co-host',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchingCoHosts
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                            width: 16, height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2)))
+                    : null,
+              ),
+              onChanged: (v) => _searchCoHosts(v),
+            ),
+            if (_coHostResults.isNotEmpty)
+              Card(
+                color: AppTheme.surface,
+                margin: const EdgeInsets.only(top: 4),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _coHostResults.length.clamp(0, 5),
+                  itemBuilder: (_, i) {
+                    final u = _coHostResults[i];
+                    return ListTile(
+                      dense: true,
+                      leading: const CircleAvatar(
+                          radius: 16, child: Icon(Icons.person, size: 16)),
+                      title: Text(u['full_name'] ?? 'User'),
+                      subtitle: Text(u['role'] ?? '',
+                          style: const TextStyle(fontSize: 11)),
+                      trailing: const Icon(Icons.add_circle_outline,
+                          color: AppTheme.accent),
+                      onTap: () {
+                        setState(() {
+                          _selectedCoHosts.add(u);
+                          _coHostResults.remove(u);
+                          _coHostSearchCtrl.clear();
+                          _coHostResults = [];
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+
             const SizedBox(height: 24),
 
             ElevatedButton.icon(

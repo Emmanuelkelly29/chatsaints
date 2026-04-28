@@ -431,9 +431,32 @@ const handleMessage = async (ws, user, rawData) => {
         `UPDATE meeting_participants SET is_muted=TRUE WHERE meeting_id=$1 AND user_id=$2`,
         [meeting_id, target_user_id]
       );
-      broadcast(target_user_id, {
-        type: 'participant_muted',
-        payload: { meeting_id, by: user.id },
+      // Broadcast to ALL participants so everyone's UI updates
+      const muteMembers = await query(
+        `SELECT user_id FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL`,
+        [meeting_id]
+      );
+      muteMembers.rows.forEach(row => {
+        broadcast(row.user_id, {
+          type: 'participant_muted',
+          payload: { meeting_id, user_id: target_user_id, by: user.id },
+        });
+      });
+      break;
+    }
+
+    // Participant notifies others they started/stopped screen sharing
+    case 'toggle_screen_share': {
+      const { meeting_id, sharing } = payload;
+      const shareMembers = await query(
+        `SELECT user_id FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL`,
+        [meeting_id]
+      );
+      shareMembers.rows.forEach(row => {
+        broadcast(row.user_id, {
+          type: 'participant_screen_share',
+          payload: { meeting_id, user_id: user.id, sharing: !!sharing },
+        });
       });
       break;
     }
@@ -481,6 +504,35 @@ const handleMessage = async (ws, user, rawData) => {
       break;
     }
 
+    // Transfer host to another participant
+    case 'transfer_host': {
+      const { meeting_id, new_host_id } = payload;
+      const mRes = await query(`SELECT host_id FROM meetings WHERE id=$1`, [meeting_id]);
+      if (!mRes.rows.length || mRes.rows[0].host_id !== user.id) break;
+
+      await query(`UPDATE meetings SET host_id=$1 WHERE id=$2`, [new_host_id, meeting_id]);
+      await query(
+        `UPDATE meeting_participants SET role='host' WHERE meeting_id=$1 AND user_id=$2`,
+        [meeting_id, new_host_id]
+      );
+      await query(
+        `UPDATE meeting_participants SET role='co_host' WHERE meeting_id=$1 AND user_id=$2`,
+        [meeting_id, user.id]
+      );
+
+      const members = await query(
+        `SELECT user_id FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL`,
+        [meeting_id]
+      );
+      members.rows.forEach(row => {
+        broadcast(row.user_id, {
+          type: 'host_transferred',
+          payload: { meeting_id, new_host_id, previous_host_id: user.id },
+        });
+      });
+      break;
+    }
+
     // WebRTC offer/answer/ICE for meeting participants (peer-to-peer within meeting)
     case 'meeting_webrtc_offer':
     case 'meeting_webrtc_answer':
@@ -523,6 +575,40 @@ const initWebSocketServer = (httpServer) => {
       if (!userSockets.get(user.id)?.size) {
         userSockets.delete(user.id);
         await setUserOnline(user.id, false);
+
+        // Auto-promote co-host if disconnected user was host of active meetings
+        try {
+          const hostedMeetings = await query(
+            `SELECT id FROM meetings WHERE host_id=$1 AND status='active'`,
+            [user.id]
+          );
+          for (const mtg of hostedMeetings.rows) {
+            const coHostRes = await query(
+              `SELECT user_id FROM meeting_participants
+               WHERE meeting_id=$1 AND role='co_host' AND left_at IS NULL
+               ORDER BY joined_at ASC LIMIT 1`,
+              [mtg.id]
+            );
+            if (coHostRes.rows.length) {
+              const newHostId = coHostRes.rows[0].user_id;
+              await query(`UPDATE meetings SET host_id=$1 WHERE id=$2`, [newHostId, mtg.id]);
+              await query(
+                `UPDATE meeting_participants SET role='host' WHERE meeting_id=$1 AND user_id=$2`,
+                [mtg.id, newHostId]
+              );
+              const members = await query(
+                `SELECT user_id FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL`,
+                [mtg.id]
+              );
+              members.rows.forEach(row => {
+                broadcast(row.user_id, {
+                  type: 'host_transferred',
+                  payload: { meeting_id: mtg.id, new_host_id: newHostId, previous_host_id: user.id, reason: 'host_disconnected' },
+                });
+              });
+            }
+          }
+        } catch (e) { console.error('Auto-promote error:', e.message); }
       }
       console.log(`WS disconnected: ${user.full_name}`);
     });

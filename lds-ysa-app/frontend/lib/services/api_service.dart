@@ -76,7 +76,7 @@ class ApiService {
   Map<String, dynamic> _handle(http.Response res) {
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     if (res.statusCode >= 400) {
-      throw ApiException(data['error'] ?? 'Request failed', res.statusCode);
+      throw ApiException(data['error'] ?? 'Request failed', res.statusCode, data);
     }
     return data;
   }
@@ -100,7 +100,7 @@ class ApiService {
     final streamed = await request.send();
     final res = await http.Response.fromStream(streamed);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
-    if (res.statusCode >= 400) throw ApiException(data['error'] ?? 'Upload failed', res.statusCode);
+    if (res.statusCode >= 400) throw ApiException(data['error'] ?? 'Upload failed', res.statusCode, data);
     return data;
   }
 
@@ -124,7 +124,7 @@ class ApiService {
     final streamed = await request.send();
     final res = await http.Response.fromStream(streamed);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
-    if (res.statusCode >= 400) throw ApiException(data['error'] ?? 'Upload failed', res.statusCode);
+    if (res.statusCode >= 400) throw ApiException(data['error'] ?? 'Upload failed', res.statusCode, data);
     return data;
   }
 }
@@ -132,7 +132,8 @@ class ApiService {
 class ApiException implements Exception {
   final String message;
   final int statusCode;
-  const ApiException(this.message, this.statusCode);
+  final Map<String, dynamic>? data;
+  const ApiException(this.message, this.statusCode, [this.data]);
   @override
   String toString() => 'ApiException($statusCode): $message';
 }

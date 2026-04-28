@@ -1,7 +1,83 @@
 'use strict';
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../config/database');
-const { canJoinGroup, isMissionaryLocked } = require('../utils/accessControl');
+const { canJoinGroup, isMissionaryLocked, canChat1on1 } = require('../utils/accessControl');
+
+const sortUserPair = (firstId, secondId) =>
+  [firstId, secondId].sort((left, right) => left.localeCompare(right));
+
+const findExisting1on1Conversation = async (userId, targetUserId) => query(
+  `SELECT c.id FROM conversations c
+   JOIN conversation_members cm1 ON c.id=cm1.conversation_id AND cm1.user_id=$1 AND cm1.left_at IS NULL
+   JOIN conversation_members cm2 ON c.id=cm2.conversation_id AND cm2.user_id=$2 AND cm2.left_at IS NULL
+   WHERE c.is_group=false
+   LIMIT 1`,
+  [userId, targetUserId]
+);
+
+const findContactConnection = async (userId, targetUserId) => {
+  const [lowId, highId] = sortUserPair(userId, targetUserId);
+  return query(
+    'SELECT id FROM contact_connections WHERE user_low_id=$1 AND user_high_id=$2 LIMIT 1',
+    [lowId, highId]
+  );
+};
+
+const findPendingContactRequest = async (userId, targetUserId) => query(
+  `SELECT id, sender_id, recipient_id, status
+   FROM contact_requests
+   WHERE status='pending'
+     AND ((sender_id=$1 AND recipient_id=$2) OR (sender_id=$2 AND recipient_id=$1))
+   ORDER BY created_at DESC
+   LIMIT 1`,
+  [userId, targetUserId]
+);
+
+const getUserChatSummary = async (userId) => {
+  const result = await query(
+    `SELECT id, full_name, role, profile_photo_url, status, stake_id,
+            mission_id, mission_president_mission_id, missionary_mode_active,
+            profile_hidden, is_approved
+     FROM users WHERE id=$1`,
+    [userId]
+  );
+  return result.rows[0] || null;
+};
+
+const get1on1ConversationPayload = async (conversationId, targetUserId) => {
+  const conv = await query(
+    `SELECT c.id,c.name,c.is_group,c.photo_url,c.created_at,
+            u.full_name as other_name, u.role as other_role, u.profile_photo_url as other_photo
+     FROM conversations c
+     JOIN conversation_members cm ON c.id=cm.conversation_id AND cm.user_id=$2 AND cm.left_at IS NULL
+     JOIN users u ON u.id=$2
+     WHERE c.id=$1`,
+    [conversationId, targetUserId]
+  );
+  const row = conv.rows[0] || {};
+  return {
+    id: row.id,
+    name: row.other_name,
+    is_group: false,
+    photo_url: row.other_photo,
+    role: row.other_role,
+    member_count: 2,
+  };
+};
+
+const create1on1Conversation = async (userId, targetUserId) => {
+  const convId = uuidv4();
+  await query(
+    `INSERT INTO conversations (id,is_group,created_by) VALUES ($1,false,$2)`,
+    [convId, userId]
+  );
+  await query(
+    `INSERT INTO conversation_members (id,conversation_id,user_id,is_admin)
+     VALUES ($1,$2,$3,true),($4,$2,$5,false)`,
+    [uuidv4(), convId, userId, uuidv4(), targetUserId]
+  );
+  return convId;
+};
 
 // GET /api/conversations — list all conversations for current user
 const listConversations = async (req, res) => {
@@ -163,55 +239,62 @@ const findOrCreate1on1 = async (req, res) => {
     if (target_user_id === userId) return res.status(400).json({ error: 'Cannot chat with yourself' });
 
     // Check if 1-on-1 already exists
-    const existing = await query(
-      `SELECT c.id FROM conversations c
-       JOIN conversation_members cm1 ON c.id=cm1.conversation_id AND cm1.user_id=$1 AND cm1.left_at IS NULL
-       JOIN conversation_members cm2 ON c.id=cm2.conversation_id AND cm2.user_id=$2 AND cm2.left_at IS NULL
-       WHERE c.is_group=false
-       LIMIT 1`,
-      [userId, target_user_id]
-    );
+    const existing = await findExisting1on1Conversation(userId, target_user_id);
 
     if (existing.rows.length) {
-      // Return existing conversation with member info
-      const conv = await query(
-        `SELECT c.id,c.name,c.is_group,c.photo_url,c.created_at,
-                u.full_name as other_name, u.role as other_role, u.profile_photo_url as other_photo
-         FROM conversations c
-         JOIN conversation_members cm ON c.id=cm.conversation_id AND cm.user_id=$2 AND cm.left_at IS NULL
-         JOIN users u ON u.id=$2
-         WHERE c.id=$1`,
-        [existing.rows[0].id, target_user_id]
-      );
-      const row = conv.rows[0];
-      return res.json({
-        id: row.id, name: row.other_name, is_group: false,
-        photo_url: row.other_photo, role: row.other_role,
-        member_count: 2, created: false,
+      const payload = await get1on1ConversationPayload(existing.rows[0].id, target_user_id);
+      return res.json({ ...payload, created: false });
+    }
+
+    const target = await getUserChatSummary(target_user_id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (!target.is_approved) return res.status(403).json({ error: 'This user cannot receive chats yet' });
+    if (!canChat1on1(req.user, target)) {
+      return res.status(403).json({ error: 'You cannot chat with this user' });
+    }
+
+    const connection = await findContactConnection(userId, target_user_id);
+    if (!connection.rows.length) {
+      const pending = await findPendingContactRequest(userId, target_user_id);
+      if (pending.rows.length) {
+        const requestInfo = pending.rows[0];
+        const outgoing = requestInfo.sender_id === userId;
+        return res.status(403).json({
+          error: outgoing
+            ? 'Connection request already pending'
+            : 'This user already requested to connect. Accept the request first.',
+          requires_request: false,
+          request_status: outgoing ? 'outgoing_pending' : 'incoming_pending',
+          request_id: requestInfo.id,
+        });
+      }
+
+      return res.status(403).json({
+        error: 'Connection request required before starting a chat',
+        requires_request: true,
+        request_status: 'none',
       });
     }
 
-    // Create new 1-on-1
-    const convId = uuidv4();
-    await query(
-      `INSERT INTO conversations (id,is_group,created_by) VALUES ($1,false,$2)`,
-      [convId, userId]
-    );
-    await query(
-      `INSERT INTO conversation_members (id,conversation_id,user_id,is_admin)
-       VALUES ($1,$2,$3,true),($4,$2,$5,false)`,
-      [uuidv4(), convId, userId, uuidv4(), target_user_id]
-    );
+    const convId = await create1on1Conversation(userId, target_user_id);
+    const payload = await get1on1ConversationPayload(convId, target_user_id);
 
-    const target = await query('SELECT full_name,role,profile_photo_url FROM users WHERE id=$1', [target_user_id]);
-    const t = target.rows[0] || {};
-
-    return res.status(201).json({
-      id: convId, name: t.full_name, is_group: false,
-      photo_url: t.profile_photo_url, role: t.role,
-      member_count: 2, created: true,
-    });
+    return res.status(201).json({ ...payload, created: true });
   } catch (err) { console.error(err); return res.status(500).json({ error: 'Failed to start conversation' }); }
 };
 
-module.exports = { listConversations, createConversation, getMessages, pinConversation, unpinConversation, getPinnedConversations, findOrCreate1on1 };
+module.exports = {
+  listConversations,
+  createConversation,
+  getMessages,
+  pinConversation,
+  unpinConversation,
+  getPinnedConversations,
+  findOrCreate1on1,
+  findExisting1on1Conversation,
+  get1on1ConversationPayload,
+  create1on1Conversation,
+  findContactConnection,
+  findPendingContactRequest,
+  getUserChatSummary,
+};

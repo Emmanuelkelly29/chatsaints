@@ -41,7 +41,7 @@ async function activeParticipants(meetingId) {
 router.post('/', mw, async (req, res) => {
   try {
     const { title, description, join_key, requires_approval = false,
-            allow_link_join = true, max_participants = 1000 } = req.body;
+            allow_link_join = true, max_participants = 1000, co_host_ids = [] } = req.body;
 
     if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
     if (max_participants < 2 || max_participants > 1000)
@@ -71,6 +71,18 @@ router.post('/', mw, async (req, res) => {
        VALUES ($1,$2,$3,'host')`,
       [uuidv4(), meetingId, req.user.id]
     );
+
+    // Add co-hosts
+    if (Array.isArray(co_host_ids) && co_host_ids.length) {
+      for (const coHostId of co_host_ids) {
+        if (coHostId === req.user.id) continue;
+        await query(
+          `INSERT INTO meeting_participants (id, meeting_id, user_id, role)
+           VALUES ($1,$2,$3,'co_host') ON CONFLICT (meeting_id, user_id) DO NOTHING`,
+          [uuidv4(), meetingId, coHostId]
+        );
+      }
+    }
 
     const meeting = await getMeeting(meetingId);
     res.status(201).json({ ...meeting, join_key: undefined /* never send hash */ });
@@ -391,6 +403,46 @@ router.get('/:id/participants', mw, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch participants' });
+  }
+});
+
+// ── POST /:id/transfer-host/:userId — Transfer host role ──────────
+router.post('/:id/transfer-host/:userId', mw, async (req, res) => {
+  try {
+    const meeting = await getMeeting(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (meeting.host_id !== req.user.id)
+      return res.status(403).json({ error: 'Only the current host can transfer host role' });
+
+    const targetId = req.params.userId;
+    if (targetId === req.user.id)
+      return res.status(400).json({ error: 'Cannot transfer host to yourself' });
+
+    // Verify target is an active participant
+    const targetCheck = await query(
+      `SELECT * FROM meeting_participants WHERE meeting_id=$1 AND user_id=$2 AND left_at IS NULL`,
+      [meeting.id, targetId]
+    );
+    if (!targetCheck.rows.length)
+      return res.status(404).json({ error: 'User is not in the meeting' });
+
+    // Transfer: new host_id in meetings table
+    await query(`UPDATE meetings SET host_id=$1 WHERE id=$2`, [targetId, meeting.id]);
+    // New host gets host role
+    await query(
+      `UPDATE meeting_participants SET role='host' WHERE meeting_id=$1 AND user_id=$2`,
+      [meeting.id, targetId]
+    );
+    // Old host becomes co_host (stays in meeting)
+    await query(
+      `UPDATE meeting_participants SET role='co_host' WHERE meeting_id=$1 AND user_id=$2`,
+      [meeting.id, req.user.id]
+    );
+
+    res.json({ status: 'transferred', new_host_id: targetId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to transfer host' });
   }
 });
 

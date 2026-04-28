@@ -7,6 +7,7 @@ const getSettings = async (req, res) => {
   try {
     const result = await query(
       `SELECT stealth_status_view, status_visibility_default,
+              contact_request_preference, directory_visible,
               fcm_token IS NOT NULL as has_push_token,
               email, is_single, date_of_birth
        FROM users WHERE id = $1`,
@@ -35,18 +36,28 @@ const updateNotificationSettings = async (req, res) => {
 // PATCH /api/settings/privacy
 const updatePrivacySettings = async (req, res) => {
   try {
-    const { stealth_status_view, status_visibility_default, is_single } = req.body;
+    const {
+      stealth_status_view,
+      status_visibility_default,
+      is_single,
+      contact_request_preference,
+      directory_visible,
+    } = req.body;
     await query(
       `UPDATE users SET
          stealth_status_view       = COALESCE($1, stealth_status_view),
          status_visibility_default = COALESCE($2::status_visibility, status_visibility_default),
          is_single                 = COALESCE($3, is_single),
-         updated_at                = NOW()
-       WHERE id = $4`,
+         contact_request_preference = COALESCE($4::contact_request_preference, contact_request_preference),
+         directory_visible          = COALESCE($5, directory_visible),
+         updated_at                 = NOW()
+       WHERE id = $6`,
       [
         typeof stealth_status_view === 'boolean' ? stealth_status_view : null,
         status_visibility_default || null,
         typeof is_single === 'boolean' ? is_single : null,
+        contact_request_preference || null,
+        typeof directory_visible === 'boolean' ? directory_visible : null,
         req.user.id,
       ]
     );
@@ -95,6 +106,8 @@ const deleteAccount = async (req, res) => {
     await query('DELETE FROM status_views WHERE viewer_id = $1', [userId]);
     await query('DELETE FROM statuses WHERE user_id = $1', [userId]);
     await query('DELETE FROM leader_approvals WHERE applicant_id = $1', [userId]);
+    await query('DELETE FROM contact_requests WHERE sender_id = $1 OR recipient_id = $1', [userId]);
+    await query('DELETE FROM contact_connections WHERE user_low_id = $1 OR user_high_id = $1', [userId]);
 
     // Finally delete the user record
     await query('DELETE FROM users WHERE id = $1', [userId]);

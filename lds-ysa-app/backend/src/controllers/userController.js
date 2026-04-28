@@ -6,9 +6,11 @@ const { canViewProfile, canSearchUser, getUserFeatureFlags, ROLE_TIER } = requir
 const getMe = async (req, res) => {
   try {
     const result = await query(
-      `SELECT u.id,u.full_name,u.phone_number,u.email,u.role,u.status,u.age,
+      `SELECT u.id,u.full_name,u.phone_number,u.email,u.role,u.status,
+              EXTRACT(YEAR FROM AGE(u.date_of_birth))::INTEGER as age,
               u.is_single,u.profile_photo_url,u.bio,u.is_approved,
               u.stake_id,u.mission_id,u.missionary_mode_active,
+              u.contact_request_preference,u.directory_visible,
               s.name as stake_name, m.name as mission_name
        FROM users u
        LEFT JOIN stakes s ON u.stake_id=s.id
@@ -32,7 +34,8 @@ const searchUsers = async (req, res) => {
 
     const result = await query(
       `SELECT id,full_name,phone_number,email,role,status,profile_photo_url,
-              stake_id,mission_id,missionary_mode_active,profile_hidden
+              stake_id,mission_id,missionary_mode_active,profile_hidden,
+              directory_visible
        FROM users
        WHERE (full_name ILIKE $1 OR phone_number ILIKE $1 OR email ILIKE $1)
          AND status != 'suspended'
@@ -42,7 +45,10 @@ const searchUsers = async (req, res) => {
     );
 
     // Filter by access control rules
-    const visible = result.rows.filter(target => canSearchUser(viewer, target));
+    const visible = result.rows
+      .filter(target => target.directory_visible !== false)
+      .filter(target => canSearchUser(viewer, target))
+      .map(({ phone_number, email, directory_visible, ...target }) => target);
     return res.json({ data: visible });
   } catch (err) { return res.status(500).json({ error: 'Search failed' }); }
 };
@@ -51,7 +57,8 @@ const searchUsers = async (req, res) => {
 const getUserById = async (req, res) => {
   try {
     const result = await query(
-      `SELECT u.id,u.full_name,u.phone_number,u.email,u.role,u.status,u.age,
+      `SELECT u.id,u.full_name,u.phone_number,u.email,u.role,u.status,
+              EXTRACT(YEAR FROM AGE(u.date_of_birth))::INTEGER as age,
               u.profile_photo_url,u.bio,u.stake_id,u.mission_id,
               u.missionary_mode_active,u.profile_hidden,u.last_seen,
               s.name as stake_name, m.name as mission_name
@@ -101,13 +108,16 @@ const getStakePool = async (req, res) => {
       return res.status(403).json({ error: 'Missionary mode active — stake pool unavailable' });
 
     const result = await query(
-      `SELECT u.id,u.full_name,u.phone_number,u.profile_photo_url,u.age,u.role,
+          `SELECT u.id,u.full_name,u.phone_number,u.profile_photo_url,
+            EXTRACT(YEAR FROM AGE(u.date_of_birth))::INTEGER as age,
+            u.role,
               spm.stake_id, s.name as stake_name
        FROM stake_pool_members spm
        JOIN users u ON spm.user_id=u.id
        JOIN stakes s ON spm.stake_id=s.id
        WHERE spm.approved=true AND s.ysa_pool_active=true
          AND u.status='active' AND u.missionary_mode_active=false
+             AND u.directory_visible=true
        ORDER BY u.full_name`,
       []
     );

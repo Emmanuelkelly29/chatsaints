@@ -13,6 +13,7 @@ const {
   getUserFeatureFlags,
   requiresLeaderApproval,
   ROLE_TIER,
+  canReceiveContactRequest,
 } = require('../src/utils/accessControl');
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -191,6 +192,28 @@ describe('canChat1on1', () => {
     const m = makeUser({ id: 'u1', role: 'missionary', mission_id: 'mission-A' });
     const ysa = makeUser({ id: 'u2', role: 'ysa_member' });
     expect(canChat1on1(m, ysa)).toBe(false);
+  });
+});
+
+describe('canReceiveContactRequest', () => {
+  test('approved pool preference allows visible users to request', () => {
+    const a = makeUser({ id: 'u1', role: 'ysa_member', stake_id: 'stake-a' });
+    const b = makeUser({ id: 'u2', role: 'ysa_member', stake_id: 'stake-b' });
+    expect(canReceiveContactRequest(a, b, 'approved_pool')).toBe(true);
+  });
+
+  test('same stake preference restricts requests to same stake', () => {
+    const a = makeUser({ id: 'u1', stake_id: 'stake-a' });
+    const b = makeUser({ id: 'u2', stake_id: 'stake-a' });
+    const c = makeUser({ id: 'u3', stake_id: 'stake-b' });
+    expect(canReceiveContactRequest(a, b, 'same_stake')).toBe(true);
+    expect(canReceiveContactRequest(a, c, 'same_stake')).toBe(false);
+  });
+
+  test('nobody preference blocks all new requests', () => {
+    const a = makeUser({ id: 'u1' });
+    const b = makeUser({ id: 'u2' });
+    expect(canReceiveContactRequest(a, b, 'nobody')).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/phone_country_field.dart';
 import '../home/home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passCtrl  = TextEditingController();
+  String _fullPhoneNumber = '+1'; // updated by PhoneCountryField
   DateTime? _dob;
   String _role = 'ysa_member';
   bool _isSingle = true;
@@ -103,7 +105,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final countryVal     = _countryCtrl.text.trim();
       final districtNameVal = _districtNameCtrl.text.trim();
       await AuthService().register(
-        phoneNumber:    _phoneCtrl.text.trim(),
+        phoneNumber:    _fullPhoneNumber.trim(),
         fullName:       _nameCtrl.text.trim(),
         dateOfBirth:    _dob!.toIso8601String().split('T').first,
         password:       _passCtrl.text,
@@ -170,10 +172,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   validator: (v) => (v?.isEmpty ?? true) ? 'Required' : null,
                 ),
                 const SizedBox(height: 14),
-                TextFormField(
+                PhoneCountryField(
                   controller: _phoneCtrl,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(labelText: 'Phone number *', prefixIcon: Icon(Icons.phone)),
+                  hintText: '555-2847',
+                  onChanged: (full) => _fullPhoneNumber = full,
                   validator: (v) => (v?.isEmpty ?? true) ? 'Required' : null,
                 ),
                 const SizedBox(height: 14),

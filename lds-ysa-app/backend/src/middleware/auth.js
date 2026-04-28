@@ -14,6 +14,7 @@ const authenticate = async (req, res, next) => {
       `SELECT id, full_name, phone_number, email, role, status,
               stake_id, district_id, mission_id, mission_president_mission_id,
               missionary_mode_active, profile_hidden, is_approved,
+              contact_request_preference, directory_visible,
               fcm_token, apns_token
        FROM users WHERE id = $1 AND status != 'suspended'`,
       [decoded.userId]

@@ -39,10 +39,12 @@ class _StakesManagementScreenState extends State<StakesManagementScreen>
     setState(() => _loadingStakes = true);
     try {
       final list = await _api.getList('/geography/stakes');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _stakes = list.whereType<Map<String, dynamic>>().toList();
         _loadingStakes = false;
       });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadingStakes = false);
     }
@@ -52,10 +54,12 @@ class _StakesManagementScreenState extends State<StakesManagementScreen>
     setState(() => _loadingDistricts = true);
     try {
       final list = await _api.getList('/geography/districts');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _districts = list.whereType<Map<String, dynamic>>().toList();
         _loadingDistricts = false;
       });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadingDistricts = false);
     }
@@ -172,7 +176,7 @@ class _StakesManagementScreenState extends State<StakesManagementScreen>
                   isStake ? _loadStakes() : _loadDistricts();
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Renamed successfully'),
+                      const SnackBar(content: Text('Renamed successfully'),
                           backgroundColor: AppTheme.success));
                   }
                 } catch (e) {

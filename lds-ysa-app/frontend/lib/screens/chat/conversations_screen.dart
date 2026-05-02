@@ -198,9 +198,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: AppTheme.accent.withOpacity(0.3)),
                             ),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            child: const Row(mainAxisSize: MainAxisSize.min, children: [
                               Icon(Icons.group_add, color: AppTheme.accent, size: 13),
-                              const SizedBox(width: 4),
+                              SizedBox(width: 4),
                               Text('New Group',
                                 style: TextStyle(fontSize: 11, color: AppTheme.accent,
                                     fontWeight: FontWeight.w600)),

@@ -18,6 +18,8 @@ import '../../widgets/voice_note_recorder.dart';
 
 const _kEmojis = ['👍','❤️','😂','😮','😢','🙏','🔥','✅','👏','💙'];
 
+enum _ChatMenuAction { info, refresh }
+
 class ChatScreen extends StatefulWidget {
   final ConversationModel conversation;
   const ChatScreen({super.key, required this.conversation});
@@ -67,6 +69,36 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       _scrollToBottom();
     } catch (_) { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<void> _refreshMessages() async {
+    setState(() {
+      _messages.clear();
+      _loading = true;
+    });
+    await _loadMessages();
+  }
+
+  Future<void> _onMenuAction(_ChatMenuAction action) async {
+    switch (action) {
+      case _ChatMenuAction.info:
+        if (widget.conversation.isGroup) {
+          if (!mounted) return;
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => GroupInfoScreen(groupId: widget.conversation.id)),
+          );
+        } else {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Chat info for direct messages is coming soon')),
+          );
+        }
+        break;
+      case _ChatMenuAction.refresh:
+        await _refreshMessages();
+        break;
+    }
   }
 
   void _onWsMessage(Map<String, dynamic> msg) {
@@ -215,8 +247,10 @@ class _ChatScreenState extends State<ChatScreen> {
         'media_url': mediaUrl,
       });
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.danger));
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -269,7 +303,20 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(icon: const Icon(Icons.videocam), onPressed: _startGroupVideoCall)
         else
           IconButton(icon: const Icon(Icons.videocam), onPressed: () => _initiateCall('video')),
-        IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
+        PopupMenuButton<_ChatMenuAction>(
+          icon: const Icon(Icons.more_vert),
+          onSelected: _onMenuAction,
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: _ChatMenuAction.info,
+              child: Text('Chat info'),
+            ),
+            PopupMenuItem(
+              value: _ChatMenuAction.refresh,
+              child: Text('Refresh messages'),
+            ),
+          ],
+        ),
       ],
     ),
     body: Column(
@@ -482,9 +529,40 @@ class _MessageBubble extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onLongPress: () => _showMessageOptions(context),
-    child: Align(
+  Widget build(BuildContext context) {
+    final msgType = message.type.toLowerCase();
+    final mediaUrlLower = (message.mediaUrl ?? '').toLowerCase();
+    final contentLower = (message.content ?? '').toLowerCase();
+    final isAudioFileUrl = mediaUrlLower.endsWith('.webm') ||
+        mediaUrlLower.endsWith('.m4a') ||
+        mediaUrlLower.endsWith('.mp3') ||
+        mediaUrlLower.endsWith('.wav') ||
+        mediaUrlLower.endsWith('.ogg') ||
+        mediaUrlLower.endsWith('.aac') ||
+        mediaUrlLower.endsWith('.opus');
+    final contentLooksLikeAudioUrl = (contentLower.startsWith('/uploads/') || contentLower.startsWith('http')) &&
+      (contentLower.endsWith('.webm') ||
+        contentLower.endsWith('.m4a') ||
+        contentLower.endsWith('.mp3') ||
+        contentLower.endsWith('.wav') ||
+        contentLower.endsWith('.ogg') ||
+        contentLower.endsWith('.aac') ||
+        contentLower.endsWith('.opus'));
+    final looksLikeDuration = RegExp(r'^\d{1,2}:\d{2}$').hasMatch((message.content ?? '').trim());
+    final hasMedia = (message.mediaUrl ?? '').isNotEmpty;
+    final effectiveMediaUrl = hasMedia
+      ? (message.mediaUrl ?? '')
+      : (contentLooksLikeAudioUrl ? (message.content ?? '') : '');
+    final isVoiceLike = msgType == 'voice_note' ||
+      msgType == 'voice' ||
+      msgType == 'audio' ||
+      (hasMedia && isAudioFileUrl) ||
+      (!hasMedia && contentLooksLikeAudioUrl) ||
+      (hasMedia && looksLikeDuration && msgType != 'image' && msgType != 'video');
+
+    return GestureDetector(
+      onLongPress: () => _showMessageOptions(context),
+      child: Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 3),
@@ -531,7 +609,7 @@ class _MessageBubble extends StatelessWidget {
                       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.accent)),
 
                   // Media content
-                  if (message.mediaUrl != null && message.type == 'image')
+                  if ((message.mediaUrl ?? '').isNotEmpty && msgType == 'image')
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: Image.network(
@@ -542,7 +620,7 @@ class _MessageBubble extends StatelessWidget {
                         errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 60),
                       ),
                     )
-                  else if (message.mediaUrl != null && message.type == 'video')
+                  else if ((message.mediaUrl ?? '').isNotEmpty && msgType == 'video')
                     GestureDetector(
                       onTap: () {
                         final url = message.mediaUrl!.startsWith('http')
@@ -564,13 +642,13 @@ class _MessageBubble extends StatelessWidget {
                         ),
                       ),
                     )
-                  else if (message.type == 'voice_note')
+                  else if (isVoiceLike)
                     VoiceNoteBubble(
-                      mediaUrl: message.mediaUrl ?? '',
+                      mediaUrl: effectiveMediaUrl,
                       duration: message.content ?? '0:00',
                       isMe: isMe,
                     )
-                  else if (message.type == 'file')
+                  else if (msgType == 'file')
                     Row(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.attach_file, color: isMe ? Colors.white70 : AppTheme.accent),
                       const SizedBox(width: 6),
@@ -594,7 +672,8 @@ class _MessageBubble extends StatelessWidget {
         ),
       ),
     ),
-  );
+    );
+  }
 
   void _showMessageOptions(BuildContext context) {
     HapticFeedback.mediumImpact();

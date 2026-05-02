@@ -60,10 +60,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _missionsLoading = true);
     try {
       final list = await ApiService().getList('/geography/missions');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _missions = list.whereType<Map<String, dynamic>>().toList();
         _missionsLoading = false;
       });
+      }
     } catch (_) {
       if (mounted) setState(() => _missionsLoading = false);
     }
@@ -73,10 +75,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _stakesLoading = true);
     try {
       final list = await ApiService().getList('/geography/stakes');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _stakes = list.whereType<Map<String, dynamic>>().toList();
         _stakesLoading = false;
       });
+      }
     } catch (_) {
       if (mounted) setState(() => _stakesLoading = false);
     }
@@ -262,7 +266,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     _stakesLoading
                       ? const LinearProgressIndicator(color: AppTheme.accent)
                       : DropdownButtonFormField<String>(
-                          value: _stakeId,
+                          initialValue: _stakeId,
                           decoration: const InputDecoration(
                             labelText: 'Your Stake *',
                             prefixIcon: Icon(Icons.location_city),
@@ -310,7 +314,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   _missionsLoading
                     ? const LinearProgressIndicator(color: AppTheme.accent)
                     : DropdownButtonFormField<String>(
-                        value: _missionId,
+                        initialValue: _missionId,
                         decoration: const InputDecoration(
                           labelText: 'Select your mission *',
                           prefixIcon: Icon(Icons.flag),

@@ -7,6 +7,7 @@ import 'package:record/record.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:path_provider/path_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/constants.dart';
 
 // ── Voice Note Recorder ──────────────────────────────────────────
 class VoiceNoteRecorder extends StatefulWidget {
@@ -78,10 +79,12 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder>
       try {
         final amp = await _recorder.getAmplitude();
         final normalized = ((amp.current + 60) / 60).clamp(0.05, 1.0);
-        if (mounted) setState(() {
+        if (mounted) {
+          setState(() {
           _waveformData.add(normalized);
           if (_waveformData.length > 60) _waveformData.removeAt(0);
         });
+        }
       } catch (_) {}
     });
   }
@@ -244,6 +247,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   final _player = AudioPlayer();
   bool _playing = false;
   double _progress = 0.0;
+  bool _seeking = false;
   StreamSubscription? _posSub;
   StreamSubscription? _stateSub;
   Duration _total = Duration.zero;
@@ -252,8 +256,13 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   void initState() {
     super.initState();
     _posSub = _player.positionStream.listen((pos) {
-      if (_total.inMilliseconds > 0 && mounted) {
+      if (_total.inMilliseconds > 0 && mounted && !_seeking) {
         setState(() => _progress = pos.inMilliseconds / _total.inMilliseconds);
+      }
+    });
+    _player.durationStream.listen((d) {
+      if (d != null && mounted) {
+        setState(() => _total = d);
       }
     });
     _stateSub = _player.playerStateStream.listen((state) {
@@ -273,7 +282,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
       if (_player.processingState == ProcessingState.idle) {
         final url = widget.mediaUrl.startsWith('http')
             ? widget.mediaUrl
-            : 'http://localhost:4000${widget.mediaUrl}';
+            : '${AppConstants.baseUrl}${widget.mediaUrl}';
         final duration = await _player.setUrl(url);
         _total = duration ?? Duration.zero;
       }
@@ -281,9 +290,19 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
     } catch (_) {}
   }
 
+  Future<void> _seekTo(double value) async {
+    if (_total.inMilliseconds <= 0) return;
+    final clamped = value.clamp(0.0, 1.0);
+    final targetMs = (_total.inMilliseconds * clamped).round();
+    await _player.seek(Duration(milliseconds: targetMs));
+    if (mounted) setState(() => _progress = clamped);
+  }
+
   @override
   Widget build(BuildContext context) {
     final fgColor   = widget.isMe ? Colors.white : AppTheme.primary;
+    final playIconColor = Colors.white;
+    final playButtonBg = widget.isMe ? Colors.white24 : Colors.black54;
     final trackColor = widget.isMe ? Colors.white24 : Colors.grey.shade200;
     final fillColor  = widget.isMe ? Colors.white : AppTheme.primary;
 
@@ -293,12 +312,12 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
         child: Container(
           width: 36, height: 36,
           decoration: BoxDecoration(
-            color: fgColor.withOpacity(0.15),
+            color: playButtonBg,
             shape: BoxShape.circle,
           ),
           child: Icon(
             _playing ? Icons.pause : Icons.play_arrow,
-            color: fgColor, size: 22,
+            color: playIconColor, size: 22,
           ),
         ),
       ),
@@ -341,6 +360,31 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
               ),
             ),
           ]),
+        ),
+        SizedBox(
+          width: 126,
+          height: 16,
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+              activeTrackColor: fillColor,
+              inactiveTrackColor: trackColor,
+              thumbColor: fillColor,
+            ),
+            child: Slider(
+              min: 0,
+              max: 1,
+              value: _progress.clamp(0.0, 1.0),
+              onChangeStart: (_) => setState(() => _seeking = true),
+              onChanged: (v) => setState(() => _progress = v),
+              onChangeEnd: (v) async {
+                await _seekTo(v);
+                if (mounted) setState(() => _seeking = false);
+              },
+            ),
+          ),
         ),
         const SizedBox(height: 2),
         Text(widget.duration,

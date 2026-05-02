@@ -228,50 +228,81 @@ router.get('/discover', authenticate, requireActive, async (req, res, next) => {
 });
 
 // GET /api/ysa-pool/directory-stakes — ALL registered stakes AND districts (source of truth for global directory)
-// Includes units with 0 pool members. Automatically reflects new/renamed/deleted units.
+// Optional query params: age_ranges (comma-separated, e.g. "18-22,23-26"), gender ("male" or "female")
+// When filters provided, only stakes with ≥1 matching member are returned.
 router.get('/directory-stakes', authenticate, requireActive, async (req, res, next) => {
   try {
+    // Validate inputs against strict whitelists to prevent SQL injection
+    const VALID_AGE_SQL = {
+      '18-22': 'EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 18 AND 22',
+      '23-26': 'EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 23 AND 26',
+      '27-30': 'EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 27 AND 30',
+      '31-35': 'EXTRACT(YEAR FROM AGE(u.date_of_birth)) BETWEEN 31 AND 35',
+    };
+    const VALID_GENDERS = ['male', 'female'];
+
+    const rawAges = typeof req.query.age_ranges === 'string' ? req.query.age_ranges.split(',') : [];
+    const validAges = rawAges.map(a => a.trim()).filter(a => VALID_AGE_SQL[a]);
+    const rawGender = (req.query.gender || '').toLowerCase();
+    const validGender = VALID_GENDERS.includes(rawGender) ? rawGender : null;
+
+    const hasFilter = validAges.length > 0 || validGender !== null;
+
+    // Build extra conditions for the COUNT (appended after core membership checks)
+    const ageExpr = validAges.length > 0
+      ? `AND (${validAges.map(a => VALID_AGE_SQL[a]).join(' OR ')})`
+      : '';
+    const genderExpr = validGender ? `AND LOWER(u.gender) = '${validGender}'` : '';
+    const extraConditions = `${ageExpr} ${genderExpr}`.trim();
+
+    // Wrap UNION ALL in subquery so we can filter by member_count > 0 when needed
+    const havingFilter = hasFilter ? 'WHERE member_count > 0' : '';
+
     const result = await query(
-      `-- Stakes
-       SELECT s.id AS stake_id, s.name AS stake_name, s.country,
-              COALESCE(a.continent, 'Other') AS continent,
-              a.name AS area_name,
-              'stake' AS unit_type,
-              COUNT(DISTINCT CASE
-                WHEN spm.approved = true
-                  AND u.status = 'active'
-                  AND u.profile_hidden = false
-                  AND u.directory_visible = true
-                  AND u.id != $1
-                THEN u.id END) AS member_count
-       FROM stakes s
-       LEFT JOIN coordinating_councils cc ON s.coordinating_council_id = cc.id
-       LEFT JOIN areas a ON cc.area_id = a.id
-       LEFT JOIN stake_pool_members spm ON spm.stake_id = s.id
-       LEFT JOIN users u ON spm.user_id = u.id
-       GROUP BY s.id, s.name, s.country, a.continent, a.name
+      `SELECT * FROM (
+         -- Stakes
+         SELECT s.id AS stake_id, s.name AS stake_name, s.country,
+                COALESCE(a.continent, 'Other') AS continent,
+                a.name AS area_name,
+                'stake' AS unit_type,
+                COUNT(DISTINCT CASE
+                  WHEN spm.approved = true
+                    AND u.status = 'active'
+                    AND u.profile_hidden = false
+                    AND u.directory_visible = true
+                    AND u.id != $1
+                    ${extraConditions}
+                  THEN u.id END) AS member_count
+         FROM stakes s
+         LEFT JOIN coordinating_councils cc ON s.coordinating_council_id = cc.id
+         LEFT JOIN areas a ON cc.area_id = a.id
+         LEFT JOIN stake_pool_members spm ON spm.stake_id = s.id
+         LEFT JOIN users u ON spm.user_id = u.id
+         GROUP BY s.id, s.name, s.country, a.continent, a.name
 
-       UNION ALL
+         UNION ALL
 
-       -- Districts (same structure, same pool table)
-       SELECT d.id AS stake_id, d.name AS stake_name, d.country,
-              COALESCE(a.continent, 'Other') AS continent,
-              a.name AS area_name,
-              'district' AS unit_type,
-              COUNT(DISTINCT CASE
-                WHEN spm.approved = true
-                  AND u.status = 'active'
-                  AND u.profile_hidden = false
-                  AND u.directory_visible = true
-                  AND u.id != $1
-                THEN u.id END) AS member_count
-       FROM districts d
-       LEFT JOIN coordinating_councils cc ON d.coordinating_council_id = cc.id
-       LEFT JOIN areas a ON cc.area_id = a.id
-       LEFT JOIN stake_pool_members spm ON spm.stake_id = d.id
-       LEFT JOIN users u ON spm.user_id = u.id
-       GROUP BY d.id, d.name, d.country, a.continent, a.name
-
+         -- Districts (same structure)
+         SELECT d.id AS stake_id, d.name AS stake_name, d.country,
+                COALESCE(a.continent, 'Other') AS continent,
+                a.name AS area_name,
+                'district' AS unit_type,
+                COUNT(DISTINCT CASE
+                  WHEN spm.approved = true
+                    AND u.status = 'active'
+                    AND u.profile_hidden = false
+                    AND u.directory_visible = true
+                    AND u.id != $1
+                    ${extraConditions}
+                  THEN u.id END) AS member_count
+         FROM districts d
+         LEFT JOIN coordinating_councils cc ON d.coordinating_council_id = cc.id
+         LEFT JOIN areas a ON cc.area_id = a.id
+         LEFT JOIN stake_pool_members spm ON spm.stake_id = d.id
+         LEFT JOIN users u ON spm.user_id = u.id
+         GROUP BY d.id, d.name, d.country, a.continent, a.name
+       ) AS combined
+       ${havingFilter}
        ORDER BY continent NULLS LAST, country, stake_name`,
       [req.user.id]
     );

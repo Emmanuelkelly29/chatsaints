@@ -50,8 +50,10 @@ class _JoinMeetingSheetState extends State<JoinMeetingSheet> {
       });
     } catch (e) {
       setState(() { _preview = null; _loading = false; });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -84,8 +86,10 @@ class _JoinMeetingSheetState extends State<JoinMeetingSheet> {
       if (mounted) Navigator.pop(context, meetingDetail);
     } catch (e) {
       setState(() => _loading = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+      }
     }
   }
 

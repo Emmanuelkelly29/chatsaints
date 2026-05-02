@@ -626,10 +626,10 @@ class _CreateTabState extends State<_CreateTab> {
                     const SizedBox(height: 12),
 
                     // Code row
-                    Row(children: [
-                      const Icon(Icons.tag, size: 16, color: Colors.grey),
-                      const SizedBox(width: 6),
-                      const Text('Meeting Code:',
+                    const Row(children: [
+                      Icon(Icons.tag, size: 16, color: Colors.grey),
+                      SizedBox(width: 6),
+                      Text('Meeting Code:',
                           style: TextStyle(color: Colors.grey, fontSize: 12)),
                     ]),
                     const SizedBox(height: 4),
@@ -658,10 +658,10 @@ class _CreateTabState extends State<_CreateTab> {
                     const Divider(height: 20),
 
                     // Link row
-                    Row(children: [
-                      const Icon(Icons.link, size: 16, color: Colors.grey),
-                      const SizedBox(width: 6),
-                      const Text('Invite Link:',
+                    const Row(children: [
+                      Icon(Icons.link, size: 16, color: Colors.grey),
+                      SizedBox(width: 6),
+                      Text('Invite Link:',
                           style: TextStyle(color: Colors.grey, fontSize: 12)),
                     ]),
                     const SizedBox(height: 4),
@@ -780,7 +780,7 @@ class _CreateTabState extends State<_CreateTab> {
                         'You approve each person before they enter',
                         style: TextStyle(fontSize: 12)),
                     value: _requiresApproval,
-                    activeColor: AppTheme.accent,
+                    activeThumbColor: AppTheme.accent,
                     onChanged: (v) =>
                         setState(() => _requiresApproval = v),
                     contentPadding:
@@ -793,7 +793,7 @@ class _CreateTabState extends State<_CreateTab> {
                         'Anyone with the code can request to join',
                         style: TextStyle(fontSize: 12)),
                     value: _allowLink,
-                    activeColor: AppTheme.accent,
+                    activeThumbColor: AppTheme.accent,
                     onChanged: (v) => setState(() => _allowLink = v),
                     contentPadding:
                         const EdgeInsets.symmetric(horizontal: 16),

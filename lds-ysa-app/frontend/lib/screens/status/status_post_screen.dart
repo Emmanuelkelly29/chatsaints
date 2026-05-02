@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 
@@ -22,6 +26,7 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
   // For image/video/voice
   XFile? _pickedFile;
   String? _pickedFileName;
+  int _videoDurationSecs = 120;
 
   // For text status
   String _bgColor = '#0A1628';
@@ -47,12 +52,31 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
   }
 
   Future<void> _pickVideo() async {
-    final xfile = await ImagePicker().pickVideo(source: ImageSource.gallery);
+    final xfile = await ImagePicker().pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: const Duration(seconds: 120),
+    );
     if (xfile != null) {
       setState(() {
         _pickedFile = xfile;
         _pickedFileName = xfile.name;
         _mode = 'video';
+        _videoDurationSecs = 120;
+      });
+    }
+  }
+
+  Future<void> _recordVideo() async {
+    final xfile = await ImagePicker().pickVideo(
+      source: ImageSource.camera,
+      maxDuration: const Duration(seconds: 120),
+    );
+    if (xfile != null) {
+      setState(() {
+        _pickedFile = xfile;
+        _pickedFileName = xfile.name;
+        _mode = 'video';
+        _videoDurationSecs = 120;
       });
     }
   }
@@ -69,6 +93,143 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
         _pickedFileName = file.name;
         _mode = 'voice';
       });
+    }
+  }
+
+  Future<void> _recordVoice() async {
+    final recorder = AudioRecorder();
+    Timer? recordingTicker;
+    var elapsedSeconds = 0;
+    var showRecordingDot = true;
+    try {
+      final hasPermission = await recorder.hasPermission();
+      if (!hasPermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Microphone permission is required to record voice notes')),
+          );
+        }
+        return;
+      }
+
+      final path = await _buildVoiceRecordingPath();
+      await recorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000, sampleRate: 44100),
+        path: path,
+      );
+
+      if (!mounted) return;
+      final recordedPath = await showModalBottomSheet<String>(
+        context: context,
+        backgroundColor: const Color(0xFF1A2E4A),
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (sheetContext, setModalState) {
+            recordingTicker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+              if (!sheetContext.mounted) return;
+              setModalState(() {
+                elapsedSeconds += 1;
+                showRecordingDot = !showRecordingDot;
+              });
+            });
+
+            final mm = (elapsedSeconds ~/ 60).toString().padLeft(2, '0');
+            final ss = (elapsedSeconds % 60).toString().padLeft(2, '0');
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.mic, color: Color(0xFFC9A84C), size: 44),
+                  const SizedBox(height: 8),
+                  const Text('Recording voice note...', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      AnimatedOpacity(
+                        opacity: showRecordingDot ? 1 : 0.25,
+                        duration: const Duration(milliseconds: 250),
+                        child: const Icon(Icons.fiber_manual_record, color: Colors.redAccent, size: 14),
+                      ),
+                      const SizedBox(width: 6),
+                      Text('$mm:$ss', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          recordingTicker?.cancel();
+                          await recorder.stop();
+                          if (sheetContext.mounted) Navigator.pop(sheetContext);
+                        },
+                        icon: const Icon(Icons.close),
+                        label: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          recordingTicker?.cancel();
+                          final recorded = await recorder.stop();
+                          if (sheetContext.mounted) Navigator.pop(sheetContext, recorded);
+                        },
+                        icon: const Icon(Icons.stop),
+                        label: const Text('Stop & Use'),
+                      ),
+                    ),
+                  ]),
+                ]),
+              ),
+            );
+          },
+        ),
+      );
+
+      recordingTicker?.cancel();
+
+      if (recordedPath != null && recordedPath.isNotEmpty && mounted) {
+        setState(() {
+          _pickedFile = XFile(recordedPath);
+          _pickedFileName = p.basename(recordedPath);
+          _mode = 'voice';
+        });
+      }
+    } catch (e) {
+      recordingTicker?.cancel();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to record voice note: $e'), backgroundColor: AppTheme.danger),
+        );
+      }
+    } finally {
+      recordingTicker?.cancel();
+      await recorder.dispose();
+    }
+  }
+
+  Future<String> _buildVoiceRecordingPath() async {
+    if (kIsWeb) return 'status_voice_note.webm';
+    final dir = await getTemporaryDirectory();
+    return '${dir.path}/status_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+  }
+
+  Future<void> _onModeSelected(String mode) async {
+    setState(() => _mode = mode);
+    if (mode == 'image') {
+      await _showImageOptions();
+      return;
+    }
+    if (mode == 'video') {
+      await _showVideoOptions();
+      return;
+    }
+    if (mode == 'voice') {
+      await _showVoiceOptions();
     }
   }
 
@@ -109,7 +270,7 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
       final body = <String, dynamic>{
         'media_type': _mode,
         'visibility': _visibility,
-        'duration_secs': _mode == 'video' ? 15 : (_mode == 'voice' ? 10 : 5),
+        'duration_secs': _mode == 'video' ? _videoDurationSecs.clamp(1, 120) : (_mode == 'voice' ? 10 : 5),
       };
 
       if (_mode == 'text') {
@@ -173,6 +334,16 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
             if (_mode == 'image' || _mode == 'video') _buildMediaPreview(),
             if (_mode == 'voice') _buildVoiceSection(),
 
+            if (_mode == 'video')
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Video status limit: up to 120 seconds',
+                  style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
             const SizedBox(height: 16),
 
             if (_mode != 'text') ...[
@@ -220,7 +391,7 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
         final active = _mode == m.$1;
         return Expanded(
           child: GestureDetector(
-            onTap: () => setState(() => _mode = m.$1),
+            onTap: () => _onModeSelected(m.$1),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -309,7 +480,7 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
 
   Widget _buildMediaPreview() {
     return GestureDetector(
-      onTap: _showMediaPicker,
+      onTap: _mode == 'image' ? _showImageOptions : _showVideoOptions,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         height: 300,
@@ -363,7 +534,7 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
 
   Widget _buildVoiceSection() {
     return GestureDetector(
-      onTap: _pickVoice,
+      onTap: _showVoiceOptions,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         height: 200,
@@ -379,7 +550,7 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
                 Text('Tap to select a voice note',
                     style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 16)),
                 const SizedBox(height: 6),
-                Text('Select an audio file from your device',
+                Text('Record now or choose from device',
                     style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
               ])
             : Stack(children: [
@@ -446,8 +617,8 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
     }).toList();
   }
 
-  void _showMediaPicker() {
-    showModalBottomSheet(
+  Future<void> _showImageOptions() {
+    return showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1A2E4A),
       shape: const RoundedRectangleBorder(
@@ -460,14 +631,55 @@ class _StatusPostScreenState extends State<StatusPostScreen> {
             onTap: () { Navigator.pop(context); _pickImage(); },
           ),
           ListTile(
-            leading: const Icon(Icons.videocam, color: Color(0xFFC9A84C)),
-            title: const Text('Choose video from gallery', style: TextStyle(color: Colors.white)),
-            onTap: () { Navigator.pop(context); _pickVideo(); },
-          ),
-          if (!kIsWeb) ListTile(
             leading: const Icon(Icons.camera_alt, color: Color(0xFFC9A84C)),
             title: const Text('Take a photo now', style: TextStyle(color: Colors.white)),
             onTap: () { Navigator.pop(context); _takePhoto(); },
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _showVideoOptions() {
+    return showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A2E4A),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.video_library, color: Color(0xFFC9A84C)),
+            title: const Text('Choose video from gallery (<=120s)', style: TextStyle(color: Colors.white)),
+            onTap: () { Navigator.pop(context); _pickVideo(); },
+          ),
+          ListTile(
+            leading: const Icon(Icons.videocam, color: Color(0xFFC9A84C)),
+            title: const Text('Record video now (<=120s)', style: TextStyle(color: Colors.white)),
+            onTap: () { Navigator.pop(context); _recordVideo(); },
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _showVoiceOptions() {
+    return showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A2E4A),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.mic, color: Color(0xFFC9A84C)),
+            title: const Text('Record voice note now (live)', style: TextStyle(color: Colors.white)),
+            onTap: () { Navigator.pop(context); _recordVoice(); },
+          ),
+          ListTile(
+            leading: const Icon(Icons.audio_file, color: Color(0xFFC9A84C)),
+            title: const Text('Choose voice note from device', style: TextStyle(color: Colors.white)),
+            onTap: () { Navigator.pop(context); _pickVoice(); },
           ),
         ]),
       ),

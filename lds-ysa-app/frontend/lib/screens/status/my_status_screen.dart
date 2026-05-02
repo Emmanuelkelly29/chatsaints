@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import '../../services/api_service.dart';
 import '../../models/status_model.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/constants.dart';
+import '../../widgets/voice_note_recorder.dart';
 import 'status_post_screen.dart';
 
 class MyStatusScreen extends StatefulWidget {
@@ -16,6 +18,13 @@ class _MyStatusScreenState extends State<MyStatusScreen> {
   final _api = ApiService();
   List<StatusModel> _statuses = [];
   bool _loading = false;
+
+  String _formatDuration(int seconds) {
+    final total = seconds < 0 ? 0 : seconds;
+    final m = (total ~/ 60).toString().padLeft(2, '0');
+    final s = (total % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
 
   @override
   void initState() {
@@ -143,14 +152,26 @@ class _MyStatusScreenState extends State<MyStatusScreen> {
                                       ),
                                     )
                                   : s.mediaType == 'voice'
-                                      ? const ColoredBox(color: Color(0xFF0A1628),
-                                          child: Center(child: Icon(Icons.audiotrack,
-                                              color: Color(0xFFC9A84C), size: 56)))
+                                      ? ColoredBox(
+                                        color: const Color(0xFF0A1628),
+                                        child: Center(
+                                        child: mediaUrl.isEmpty
+                                          ? const Icon(Icons.audiotrack,
+                                            color: Color(0xFFC9A84C), size: 56)
+                                          : VoiceNoteBubble(
+                                            mediaUrl: mediaUrl,
+                                            duration: _formatDuration(s.durationSecs),
+                                            isMe: false,
+                                            ),
+                                        ),
+                                      )
                                       : s.mediaType == 'image' && mediaUrl.isNotEmpty
                                           ? Image.network(mediaUrl, fit: BoxFit.cover,
                                               errorBuilder: (_, __, ___) =>
                                                   const ColoredBox(color: AppTheme.surface,
                                                     child: Center(child: Icon(Icons.image, color: AppTheme.textSecondary, size: 48))))
+                                          : s.mediaType == 'video' && mediaUrl.isNotEmpty
+                                            ? _StatusCardVideoPlayer(mediaUrl: mediaUrl)
                                           : const ColoredBox(color: Colors.black,
                                               child: Center(child: Icon(Icons.play_circle_fill,
                                                   color: Colors.white, size: 56))),
@@ -251,4 +272,69 @@ class _MyStatusScreenState extends State<MyStatusScreen> {
                 },
               ),
   );
+}
+
+class _StatusCardVideoPlayer extends StatefulWidget {
+  final String mediaUrl;
+  const _StatusCardVideoPlayer({required this.mediaUrl});
+
+  @override
+  State<_StatusCardVideoPlayer> createState() => _StatusCardVideoPlayerState();
+}
+
+class _StatusCardVideoPlayerState extends State<_StatusCardVideoPlayer> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.mediaUrl))
+      ..setLooping(true)
+      ..initialize().then((_) {
+        if (!mounted || _controller == null) return;
+        setState(() => _ready = true);
+      });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready || _controller == null) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    return GestureDetector(
+      onTap: () {
+        if (_controller!.value.isPlaying) {
+          _controller!.pause();
+        } else {
+          _controller!.play();
+        }
+        setState(() {});
+      },
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(child: VideoPlayer(_controller!)),
+          if (!_controller!.value.isPlaying)
+            const Icon(Icons.play_circle_fill, color: Colors.white, size: 56),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: VideoProgressIndicator(
+              _controller!,
+              allowScrubbing: true,
+              colors: const VideoProgressColors(playedColor: Color(0xFFC9A84C)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
 }

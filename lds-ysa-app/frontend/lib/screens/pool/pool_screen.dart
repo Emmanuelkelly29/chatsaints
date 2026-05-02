@@ -69,11 +69,13 @@ class _PoolScreenState extends State<PoolScreen> {
       final members = (res['members'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
       final status = res['myStatus'] as String? ?? 'no_stake';
       final stake = res['stake'] as Map<String, dynamic>?;
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _myStakeMembers = members;
         _myStatus = status;
         _myStake = stake;
       });
+      }
     } catch (_) {
       if (mounted) setState(() => _myStatus = 'no_stake');
     }
@@ -82,17 +84,38 @@ class _PoolScreenState extends State<PoolScreen> {
   Future<void> _loadGlobal() async {
     setState(() { _loadingGlobal = true; _expandedStake = null; _expandedStakeMembers = []; _expandedContinents = {}; });
     try {
-      // Always query /directory-stakes — source of truth is the stakes table.
-      // New stakes, renamed stakes, deleted stakes all reflect automatically.
-      final res = await _api.get('/ysa-pool/directory-stakes');
+      final res = await _api.get('/ysa-pool/directory-stakes${_buildFilterQueryString()}');
       final list = (res['stakes'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _stakeGroups = list; // each entry: stake_id, stake_name, country, continent, member_count
         _loadingGlobal = false;
       });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadingGlobal = false);
     }
+  }
+
+  /// Reload stake list in place (no scroll reset, no collapse) — used when filter changes on Global tab.
+  Future<void> _reloadGlobalStakeList() async {
+    if (!_showGlobal || _expandedStake != null) return;
+    setState(() => _loadingGlobal = true);
+    try {
+      final res = await _api.get('/ysa-pool/directory-stakes${_buildFilterQueryString()}');
+      final list = (res['stakes'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+      if (mounted) setState(() { _stakeGroups = list; _loadingGlobal = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loadingGlobal = false);
+    }
+  }
+
+  /// Builds query string from active age/gender filters.
+  String _buildFilterQueryString() {
+    final params = <String>[];
+    if (_selectedAges.isNotEmpty) params.add('age_ranges=${Uri.encodeComponent(_selectedAges.join(','))}');
+    if (_genderFilter != 'all') params.add('gender=$_genderFilter');
+    return params.isEmpty ? '' : '?${params.join('&')}';
   }
 
   Future<void> _loadStakeMembers(Map<String, dynamic> stake) async {
@@ -101,10 +124,12 @@ class _PoolScreenState extends State<PoolScreen> {
       final stakeId = stake['stake_id'] as String;
       final res = await _api.get('/ysa-pool/stake-members/$stakeId');
       final members = (res['members'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _expandedStakeMembers = members;
         _loadingStakeMembers = false;
       });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadingStakeMembers = false);
     }
@@ -113,10 +138,12 @@ class _PoolScreenState extends State<PoolScreen> {
   Future<void> _loadSentRequests() async {
     try {
       final res = await _api.get('/contact-requests');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _sentRequests = (res['outgoing'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
         _incomingRequests = (res['incoming'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
       });
+      }
     } catch (_) {}
   }
 
@@ -617,7 +644,10 @@ class _PoolScreenState extends State<PoolScreen> {
         const Spacer(),
         if (_hasActiveFilter)
           GestureDetector(
-            onTap: () => setState(() { _selectedAges = {}; _genderFilter = 'all'; }),
+            onTap: () {
+              setState(() { _selectedAges = {}; _genderFilter = 'all'; });
+              _reloadGlobalStakeList();
+            },
             child: const Text('Clear All', style: TextStyle(color: AppTheme.accent, fontSize: 12)),
           ),
       ]),
@@ -627,9 +657,16 @@ class _PoolScreenState extends State<PoolScreen> {
       Wrap(spacing: 8, runSpacing: 6, children: _ageRanges.map((r) {
         final sel = _selectedAges.contains(r);
         return GestureDetector(
-          onTap: () => setState(() {
-            if (sel) _selectedAges.remove(r); else _selectedAges.add(r);
-          }),
+          onTap: () {
+            setState(() {
+              if (sel) {
+                _selectedAges.remove(r);
+              } else {
+                _selectedAges.add(r);
+              }
+            });
+            _reloadGlobalStakeList();
+          },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -649,7 +686,10 @@ class _PoolScreenState extends State<PoolScreen> {
       Row(children: [
         for (final entry in <List<String>>[['all','All'],['male','Brothers'],['female','Sisters']])
           GestureDetector(
-            onTap: () => setState(() => _genderFilter = entry[0]),
+            onTap: () {
+              setState(() => _genderFilter = entry[0]);
+              _reloadGlobalStakeList();
+            },
             child: Container(
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -822,7 +862,7 @@ class _PoolScreenState extends State<PoolScreen> {
     final filteredCount = _applyFilters(_expandedStakeMembers).length;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       GestureDetector(
-        onTap: () => setState(() { _expandedStake = null; _expandedStakeMembers = []; }),
+        onTap: () => setState(() { _expandedStake = null; _expandedStakeMembers = []; _showFilterPanel = false; }),
         child: Container(
           margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

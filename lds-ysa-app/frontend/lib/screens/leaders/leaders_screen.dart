@@ -211,7 +211,7 @@ class _LeadersScreenState extends State<LeadersScreen> with SingleTickerProvider
                 ),
                 trailing: Switch(
                   value: s['ysa_pool_active'] == true,
-                  activeColor: AppTheme.accent,
+                  activeThumbColor: AppTheme.accent,
                   onChanged: (_) => _togglePool('${s['id']}'),
                 ),
               ),
@@ -246,7 +246,7 @@ class _LeadersScreenState extends State<LeadersScreen> with SingleTickerProvider
                 ),
                 trailing: Switch(
                   value: d['ysa_pool_active'] == true,
-                  activeColor: AppTheme.accent,
+                  activeThumbColor: AppTheme.accent,
                   onChanged: (_) => _toggleDistrict('${d['id']}'),
                 ),
               ),

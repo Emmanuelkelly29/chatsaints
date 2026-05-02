@@ -317,6 +317,53 @@ router.post('/:id/reject/:userId', mw, async (req, res) => {
   }
 });
 
+// ── POST /:id/leave — Caller leaves without ending the meeting ────
+router.post('/:id/leave', mw, async (req, res) => {
+  try {
+    const meeting = await getMeeting(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (meeting.status === 'ended') return res.status(410).json({ error: 'Meeting has ended' });
+
+    await query(
+      `UPDATE meeting_participants SET left_at=NOW()
+       WHERE meeting_id=$1 AND user_id=$2 AND left_at IS NULL`,
+      [meeting.id, req.user.id]
+    );
+    res.json({ status: 'left' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to leave meeting' });
+  }
+});
+
+// ── POST /:id/add-cohost — Host adds a co-host during meeting ─────
+router.post('/:id/add-cohost', mw, async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id is required' });
+
+    const meeting = await getMeeting(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (meeting.status === 'ended') return res.status(410).json({ error: 'Meeting has ended' });
+    if (meeting.host_id !== req.user.id)
+      return res.status(403).json({ error: 'Only the host can add co-hosts' });
+    if (user_id === req.user.id)
+      return res.status(400).json({ error: 'Cannot add yourself as co-host' });
+
+    // Upsert: promote existing participant or pre-add for when they join
+    await query(
+      `INSERT INTO meeting_participants (id, meeting_id, user_id, role)
+       VALUES ($1,$2,$3,'co_host')
+       ON CONFLICT (meeting_id, user_id) DO UPDATE SET role='co_host'`,
+      [uuidv4(), meeting.id, user_id]
+    );
+    res.json({ status: 'co_host_added', user_id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to add co-host' });
+  }
+});
+
 // ── PATCH /:id/promote/:userId — Promote participant ──────────────
 router.patch('/:id/promote/:userId', mw, async (req, res) => {
   try {

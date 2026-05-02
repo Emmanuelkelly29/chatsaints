@@ -42,6 +42,18 @@ const createStatus = async (req, res) => {
       return res.status(400).json({ error: `media_type must be one of: ${validTypes.join(', ')}` });
     }
 
+    const parsedDuration = Number.parseInt(duration_secs, 10);
+    if (!Number.isFinite(parsedDuration) || parsedDuration <= 0) {
+      return res.status(400).json({ error: 'duration_secs must be a positive integer' });
+    }
+    if (media_type === 'video' && parsedDuration > 120) {
+      return res.status(400).json({ error: 'Video status duration cannot exceed 120 seconds' });
+    }
+
+    const normalizedDuration = media_type === 'video'
+      ? Math.min(parsedDuration, 120)
+      : parsedDuration;
+
     const validVisibility = ['everyone', 'contacts_only', 'selected', 'except'];
     if (!validVisibility.includes(visibility)) {
       return res.status(400).json({ error: `visibility must be one of: ${validVisibility.join(', ')}` });
@@ -53,7 +65,7 @@ const createStatus = async (req, res) => {
       `INSERT INTO statuses
          (id, user_id, media_url, media_type, caption, text_content, background_color, visibility, duration_secs, expires_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW() + INTERVAL '24 hours')`,
-      [statusId, user.id, media_url || null, media_type, caption || null, text_content || null, background_color || null, visibility, duration_secs]
+      [statusId, user.id, media_url || null, media_type, caption || null, text_content || null, background_color || null, visibility, normalizedDuration]
     );
 
     // Store per-user visibility list for 'selected' or 'except'

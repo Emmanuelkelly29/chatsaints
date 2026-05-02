@@ -51,10 +51,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isAdmin)   s.add(const AdminDashboardScreen());
     if (_isLeader)  s.add(const LeadersScreen());
     if (_isMission) s.add(const MissionaryScreen());
-    if (_isMission)
+    if (_isMission) {
       s.add(const PoolScreen(globalMode: true));
-    else
+    } else {
       s.add(const PoolScreen());
+    }
     s.add(const ProfileScreen());
     return s;
   }

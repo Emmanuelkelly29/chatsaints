@@ -33,13 +33,14 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
   bool _showChat = false;
   bool _loading = true;
   bool _screenSharing = false;
+  bool _screenShareExpanded = true;
   MediaStream? _screenStream;
   String? _cameraError;
   /// User ID of the remote participant currently sharing their screen (null if nobody).
   String? _remoteScreenSharingUserId;
 
   List<Map<String, dynamic>> _participants = [];
-  List<Map<String, dynamic>> _chatMessages = [];
+  final List<Map<String, dynamic>> _chatMessages = [];
   List<Map<String, dynamic>> _pendingRequests = [];
 
   static const _iceConfig = {
@@ -73,8 +74,12 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
     _chatScrollCtrl.dispose();
     _localRenderer.removeListener(_onRendererChanged);
     _localRenderer.dispose();
-    for (final r in _remoteRenderers.values) r.dispose();
-    for (final pc in _peerConnections.values) pc.close();
+    for (final r in _remoteRenderers.values) {
+      r.dispose();
+    }
+    for (final pc in _peerConnections.values) {
+      pc.close();
+    }
     _localStream?.getTracks().forEach((t) => t.stop());
     _screenStream?.getTracks().forEach((t) => t.stop());
     super.dispose();
@@ -95,12 +100,17 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
       });
       // First setState mounts RTCVideoView / HtmlElementView into the DOM
       if (mounted) setState(() {});
-      // Wait one frame so the <video> element is created before assigning srcObject
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (mounted && _localStream != null) {
-        _localRenderer.srcObject = _localStream;
-        if (mounted) setState(() {});
-      }
+      // Use double post-frame callback to ensure the HtmlElementView <video>
+      // element is fully registered in the DOM before assigning srcObject.
+      // This is more reliable than a fixed delay on slow or busy machines.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _localStream != null) {
+            _localRenderer.srcObject = _localStream;
+            if (mounted) setState(() {});
+          }
+        });
+      });
     } catch (e) {
       // Fallback: audio only if camera denied/unavailable
       try {
@@ -355,8 +365,9 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
         setState(() {
           // Update host role in participants list
           for (final p in _participants) {
-            if (p['user_id'] == newHostId) p['role'] = 'host';
-            else if (p['role'] == 'host') p['role'] = 'co_host';
+            if (p['user_id'] == newHostId) {
+              p['role'] = 'host';
+            } else if (p['role'] == 'host') p['role'] = 'co_host';
           }
         });
         if (newHostId == _me?.id) {
@@ -374,13 +385,14 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
   }
 
   Future<void> _leave() async {
+    try { await ApiService().post('/meetings/$_meetingId/leave', {}); } catch (_) {}
     WebSocketService().leaveMeeting(_meetingId);
     if (mounted) Navigator.pop(context);
   }
 
   Future<void> _endMeeting() async {
     if (_isHost) {
-      // Host must choose: end for all, transfer host, or cancel
+      // Host must choose: leave quietly, end for all, transfer host, or cancel
       final otherParticipants = _participants
           .where((p) => p['user_id'] != _me?.id)
           .toList();
@@ -395,6 +407,12 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
             TextButton(
               onPressed: () => Navigator.pop(context, 'cancel'),
               child: const Text('Cancel'),
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.exit_to_app, color: Colors.blue),
+              label: const Text('Leave (Keep Running)',
+                  style: TextStyle(color: Colors.blue)),
+              onPressed: () => Navigator.pop(context, 'leave'),
             ),
             if (otherParticipants.isNotEmpty)
               OutlinedButton.icon(
@@ -413,6 +431,10 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
         ),
       );
 
+      if (choice == 'leave') {
+        await _leave();
+        return;
+      }
       if (choice == 'transfer' && otherParticipants.isNotEmpty) {
         await _showTransferHostDialog(otherParticipants);
         return;
@@ -423,17 +445,23 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
       await ApiService().post('/meetings/$_meetingId/end', {});
       if (mounted) Navigator.pop(context);
     } else {
-      // Non-host: just confirm and leave
+      // Non-host: leave without ending the meeting
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('Leave Meeting?'),
+          title: const Text('Leave Meeting'),
+          content: const Text(
+              'You will leave but the meeting will keep running for others.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            ElevatedButton(
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.exit_to_app, color: Colors.blue),
+              label: const Text('Leave (Keep Running)',
+                  style: TextStyle(color: Colors.blue)),
               onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Leave'),
             ),
           ],
         ),
@@ -520,11 +548,77 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
         _localRenderer.srcObject = _localStream;
       }
     } else {
+      // Ask the user what they want to share
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Share Screen'),
+          content: const Text(
+            'Choose what to share.\n'
+            'Your browser will open a picker — select the matching tab.',
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.monitor_outlined),
+                  label: const Text('Entire Screen'),
+                  onPressed: () => Navigator.pop(context, 'monitor'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.picture_in_picture_alt_outlined),
+                  label: const Text('Application Window'),
+                  onPressed: () => Navigator.pop(context, 'window'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.tab_outlined),
+                  label: const Text('Another Browser Tab'),
+                  onPressed: () => Navigator.pop(context, 'browser'),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  child: const Text('Cancel'),
+                  onPressed: () => Navigator.pop(context, null),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+      if (choice == null || !mounted) return;
+
       try {
-        final screenStream = await navigator.mediaDevices.getDisplayMedia({
-          'video': {'cursor': 'always'},
-          'audio': false,
-        });
+        // Build constraints based on user's choice.
+        // displaySurface tells Chrome which picker tab to open on.
+        // 'monitor' = Entire Screen tab, 'window' = Window tab, 'browser' = Tab tab.
+        // selfBrowserSurface:'exclude' (browser tab only) removes the current
+        // meeting tab from the list so the mirror-into-mirror effect is impossible.
+        final Map<String, dynamic> constraints;
+        if (choice == 'monitor') {
+          constraints = {
+            'video': {'displaySurface': 'monitor', 'cursor': 'always'},
+            'audio': false,
+          };
+        } else if (choice == 'window') {
+          constraints = {
+            'video': {'displaySurface': 'window', 'cursor': 'always'},
+            'audio': false,
+          };
+        } else {
+          // browser tab — also exclude the current tab from the picker
+          constraints = {
+            'video': {'displaySurface': 'browser', 'cursor': 'always'},
+            'audio': false,
+            'selfBrowserSurface': 'exclude',
+            'preferCurrentTab': false,
+          };
+        }
+        final screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
         final screenTracks = screenStream.getVideoTracks();
         if (screenTracks.isEmpty) throw Exception('No screen track captured');
         setState(() {
@@ -612,6 +706,177 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
     });
   }
 
+  Future<void> _searchAndAddCoHost() async {
+    final searchCtrl = TextEditingController();
+    List<Map<String, dynamic>> results = [];
+    bool searching = false;
+    String? statusMsg;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) {
+          Future<void> doSearch(String q) async {
+            if (q.trim().length < 2) { setS(() => results = []); return; }
+            setS(() => searching = true);
+            try {
+              final data = await ApiService().get('/users/search?q=${Uri.encodeComponent(q.trim())}');
+              final list = (data['data'] as List? ?? []).cast<Map<String, dynamic>>();
+              setS(() {
+                results = list.where((u) =>
+                  u['id'] != _me?.id &&
+                  !_participants.any((p) => p['user_id'] == u['id'] && p['role'] == 'co_host')
+                ).toList();
+                searching = false;
+              });
+            } catch (_) { setS(() => searching = false); }
+          }
+
+          Future<void> addCoHost(Map<String, dynamic> user) async {
+            try {
+              await ApiService().post('/meetings/$_meetingId/add-cohost', {'user_id': user['id']});
+              final uid = user['id'] as String;
+              setState(() {
+                final idx = _participants.indexWhere((p) => p['user_id'] == uid);
+                if (idx >= 0) {
+                  _participants[idx]['role'] = 'co_host';
+                } else {
+                  _participants.add({
+                    'user_id': uid,
+                    'full_name': user['full_name'] ?? user['name'] ?? 'Unknown',
+                    'role': 'co_host',
+                    'is_muted': false,
+                    'hand_raised': false,
+                  });
+                }
+              });
+              setS(() => statusMsg = '${user['full_name'] ?? 'User'} added as co-host');
+              results.removeWhere((u) => u['id'] == uid);
+            } catch (e) {
+              setS(() => statusMsg = e.toString());
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Add Co-Host'),
+            content: SizedBox(
+              width: 320,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: searchCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search by name...',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: doSearch,
+                  ),
+                  if (statusMsg != null) ...[                    const SizedBox(height: 8),
+                    Text(statusMsg!, style: const TextStyle(color: Colors.green, fontSize: 13)),
+                  ],
+                  if (searching)
+                    const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+                  if (results.isNotEmpty)
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 240),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: results.length,
+                        itemBuilder: (_, i) {
+                          final u = results[i];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: AppTheme.accent.withOpacity(0.2),
+                              child: Text(
+                                (u['full_name'] as String? ?? '?')[0].toUpperCase(),
+                                style: const TextStyle(color: AppTheme.accent),
+                              ),
+                            ),
+                            title: Text(u['full_name'] as String? ?? 'Unknown'),
+                            subtitle: Text(u['role'] as String? ?? ''),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.person_add, color: AppTheme.accent),
+                              onPressed: () => addCoHost(u),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Done')),
+            ],
+          );
+        },
+      ),
+    );
+    searchCtrl.dispose();
+  }
+
+  /// Re-request camera + mic after user grants permission, and re-add tracks
+  /// to all live peer connections so audio/video starts flowing without a page reload.
+  Future<void> _retryMedia() async {
+    // Stop old tracks so the browser releases the device
+    _localStream?.getTracks().forEach((t) => t.stop());
+    setState(() {
+      _localStream = null;
+      _cameraError = null;
+      _cameraOn = true;
+    });
+    _localRenderer.srcObject = null;
+
+    try {
+      _localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': true,
+      });
+      if (mounted) setState(() { _cameraOn = true; _cameraError = null; });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _localStream != null) {
+            _localRenderer.srcObject = _localStream;
+            if (mounted) setState(() {});
+          }
+        });
+      });
+      // Re-add / replace tracks in every live peer connection so
+      // other participants can hear/see us without a full rejoin.
+      for (final pc in _peerConnections.values) {
+        final senders = await pc.getSenders();
+        for (final track in _localStream!.getTracks()) {
+          final existing = senders
+              .where((s) => s.track?.kind == track.kind)
+              .cast<RTCRtpSender?>()
+              .firstOrNull;
+          if (existing != null) {
+            await existing.replaceTrack(track);
+          } else {
+            await pc.addTrack(track, _localStream!);
+          }
+        }
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Camera & mic connected!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _cameraOn = false;
+          _cameraError = e.toString();
+        });
+      }
+    }
+  }
+
   void _copyCode() {
     Clipboard.setData(ClipboardData(text: _meetingCode));
     ScaffoldMessenger.of(context)
@@ -666,10 +931,174 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                Expanded(child: _showChat ? _buildChat() : _buildVideoGrid()),
+                if (_cameraError != null) _buildMediaErrorBanner(),
+                Expanded(child: _buildBody()),
                 _buildControls(),
               ],
             ),
+    );
+  }
+
+  /// Persistent banner shown when camera/mic is blocked or unavailable.
+  Widget _buildMediaErrorBanner() {
+    final isPermission = _cameraError!.toLowerCase().contains('permission') ||
+        _cameraError!.toLowerCase().contains('notallowed') ||
+        _cameraError!.toLowerCase().contains('access') ||
+        _cameraError!.toLowerCase().contains('denied');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: const Color(0xFF7B1C1C),
+      child: Row(
+        children: [
+          const Icon(Icons.videocam_off, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isPermission
+                  ? 'Camera/mic blocked. Click the camera icon in your browser address bar → Allow, then tap Retry.'
+                  : 'Camera/mic unavailable. Tap Retry to reconnect.',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ),
+          TextButton(
+            onPressed: _retryMedia,
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: Colors.white24,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            ),
+            child: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Body routing ──────────────────────────────────────────────
+  Widget _buildBody() {
+    // Chat is always shown as a side panel so participants keep seeing the
+    // video / screen share while chatting.
+    if (_showChat) return _buildSidePanelLayout();
+    // Default → video grid (handles screen share layout internally)
+    return _buildVideoGrid();
+  }
+
+  /// Main content (video grid OR screen share) on the left + chat panel on the right.
+  Widget _buildSidePanelLayout() {
+    Widget mainContent;
+    final isSharing = _screenSharing || _remoteScreenSharingUserId != null;
+    if (isSharing) {
+      // Reuse the existing screen share layout but without the thumbnail strip
+      // so it doesn't fight for space with the chat panel.
+      if (_screenSharing) {
+        mainContent = _buildLocalTile();
+      } else {
+        final uid = _remoteScreenSharingUserId!;
+        final sharer = _participants.firstWhere(
+          (p) => p['user_id'] == uid,
+          orElse: () => <String, dynamic>{},
+        );
+        final renderer = _remoteRenderers[uid];
+        mainContent = _VideoTile(
+          name: '${sharer['full_name'] ?? 'Unknown'} (Screen)',
+          role: sharer['role'] as String? ?? 'attendee',
+          isMuted: sharer['is_muted'] == true,
+          handRaised: false,
+          showVideo: renderer != null && renderer.renderVideo,
+          renderer: renderer,
+          mirror: false,
+          isMe: false,
+          isScreenShare: true,
+        );
+      }
+    } else {
+      // Regular video grid as the left pane
+      mainContent = _buildVideoGrid();
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── Main area (video / screen share) ──
+        Expanded(
+          flex: _screenShareExpanded ? 3 : 1,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(4),
+                child: mainContent,
+              ),
+              // Expand/Shrink button (only meaningful during screen share)
+              if (isSharing)
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: GestureDetector(
+                    onTap: () => setState(
+                        () => _screenShareExpanded = !_screenShareExpanded),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _screenShareExpanded
+                                ? Icons.fullscreen_exit
+                                : Icons.fullscreen,
+                            color: Colors.white,
+                            size: 15,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _screenShareExpanded ? 'Shrink' : 'Expand',
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // ── Chat side panel ──
+        Container(
+          width: 300,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F1623),
+            border: Border(left: BorderSide(color: Colors.grey.shade800)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Panel header
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 10),
+                color: const Color(0xFF111827),
+                child: const Row(
+                  children: [
+                    Icon(Icons.chat_bubble_outline,
+                        color: AppTheme.accent, size: 16),
+                    SizedBox(width: 8),
+                    Text('Chat',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 13)),
+                  ],
+                ),
+              ),
+              Expanded(child: _buildChatPanel()),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -906,14 +1335,19 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
             color: _screenSharing ? Colors.orange : Colors.white,
             onTap: _toggleScreenShare,
           ),
-          if (_isHost)
+          if (_isHost) ...[            _CtrlBtn(
+              icon: Icons.person_add,
+              label: 'Co-Host',
+              color: AppTheme.accent,
+              onTap: _searchAndAddCoHost,
+            ),
             _CtrlBtn(
               icon: Icons.cancel_outlined,
               label: 'End',
               color: Colors.red,
               onTap: _endMeeting,
-            )
-          else
+            ),
+          ] else
             _CtrlBtn(
               icon: Icons.exit_to_app,
               label: 'Leave',
@@ -925,108 +1359,160 @@ class _MeetingRoomScreenState extends State<MeetingRoomScreen> {
     );
   }
 
-  Widget _buildChat() {
+  /// Full-area chat (no screen share active).
+  /// Reusable scrollable message list + input. Used both in full chat and side panel.
+  Widget _buildChatPanel() {
     return Column(
       children: [
         Expanded(
-          child: ListView.builder(
-            controller: _chatScrollCtrl,
-            padding: const EdgeInsets.all(12),
-            itemCount: _chatMessages.length,
-            itemBuilder: (_, i) {
-              final m = _chatMessages[i];
-              final isMe = m['from_user_id'] == _me?.id;
-              final name = m['from_name'] as String? ?? 'Unknown';
-              final sentAt = m['sent_at'] as String?;
-              String timeStr = '';
-              if (sentAt != null) {
-                try {
-                  final dt = DateTime.parse(sentAt).toLocal();
-                  final h = dt.hour.toString().padLeft(2, '0');
-                  final min = dt.minute.toString().padLeft(2, '0');
-                  timeStr = '$h:$min';
-                } catch (_) {}
-              }
-              return Align(
-                alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  constraints: const BoxConstraints(maxWidth: 280),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isMe ? AppTheme.accent : AppTheme.surface,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: _chatMessages.isEmpty
+              ? const Center(
+                  child: Text('No messages yet',
+                      style: TextStyle(color: Colors.grey, fontSize: 13)))
+              : ListView.builder(
+                  controller: _chatScrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+                  itemCount: _chatMessages.length,
+                  itemBuilder: (_, i) {
+                    final m = _chatMessages[i];
+                    final isMe = m['from_user_id'] == _me?.id;
+                    final name = m['from_name'] as String? ?? 'Unknown';
+                    final sentAt = m['sent_at'] as String?;
+                    String timeStr = '';
+                    if (sentAt != null) {
+                      try {
+                        final dt = DateTime.parse(sentAt).toLocal();
+                        timeStr =
+                            '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                      } catch (_) {}
+                    }
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: Column(
+                        crossAxisAlignment: isMe
+                            ? CrossAxisAlignment.end
+                            : CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              isMe ? 'You' : name,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: isMe ? AppTheme.primary.withOpacity(0.8) : Colors.white70,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                          // Sender name + time — always visible
+                          Padding(
+                            padding: const EdgeInsets.only(
+                                bottom: 3, left: 4, right: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (!isMe) ...[
+                                  CircleAvatar(
+                                    radius: 8,
+                                    backgroundColor:
+                                        AppTheme.accent.withOpacity(0.22),
+                                    child: Text(
+                                      name.isNotEmpty
+                                          ? name[0].toUpperCase()
+                                          : '?',
+                                      style: const TextStyle(
+                                          fontSize: 9,
+                                          color: AppTheme.accent,
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                                Text(
+                                  isMe ? 'You' : name,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: isMe
+                                        ? AppTheme.accent.withOpacity(0.8)
+                                        : Colors.white70,
+                                  ),
+                                ),
+                                if (timeStr.isNotEmpty) ...[
+                                  const SizedBox(width: 6),
+                                  Text(timeStr,
+                                      style: const TextStyle(
+                                          fontSize: 10, color: Colors.grey)),
+                                ],
+                              ],
                             ),
                           ),
-                          if (timeStr.isNotEmpty) ...
-                            [
-                              const SizedBox(width: 8),
-                              Text(
-                                timeStr,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: isMe ? AppTheme.primary.withOpacity(0.6) : Colors.white38,
-                                ),
+                          // Message bubble
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 260),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isMe
+                                  ? AppTheme.accent.withOpacity(0.85)
+                                  : const Color(0xFF1E2A3A),
+                              borderRadius: BorderRadius.only(
+                                topLeft: const Radius.circular(14),
+                                topRight: const Radius.circular(14),
+                                bottomLeft: isMe
+                                    ? const Radius.circular(14)
+                                    : const Radius.circular(2),
+                                bottomRight: isMe
+                                    ? const Radius.circular(2)
+                                    : const Radius.circular(14),
                               ),
-                            ],
+                            ),
+                            child: Text(
+                              m['message'] as String? ?? '',
+                              style: TextStyle(
+                                color: isMe
+                                    ? Colors.white
+                                    : Colors.white.withOpacity(0.93),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        m['message'] as String? ?? '',
-                        style: TextStyle(color: isMe ? AppTheme.primary : Colors.white),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
         ),
-        Padding(
-          padding: const EdgeInsets.all(8),
+        // Input row
+        Container(
+          padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111827),
+            border: Border(top: BorderSide(color: Colors.grey.shade800)),
+          ),
           child: Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _chatCtrl,
-                  style: const TextStyle(color: Colors.white),
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
                   decoration: InputDecoration(
-                    hintText: 'Type a message…',
-                    hintStyle: const TextStyle(color: Colors.grey),
+                    hintText: 'Message everyone…',
+                    hintStyle:
+                        const TextStyle(color: Colors.grey, fontSize: 13),
                     filled: true,
-                    fillColor: AppTheme.surface,
+                    fillColor: const Color(0xFF1E2A3A),
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(20),
                         borderSide: BorderSide.none),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
                   ),
                   onSubmitted: (_) => _sendChat(),
                 ),
               ),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.send, color: AppTheme.accent),
-                onPressed: _sendChat,
+              const SizedBox(width: 6),
+              Material(
+                color: AppTheme.accent,
+                borderRadius: BorderRadius.circular(20),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: _sendChat,
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(Icons.send_rounded,
+                        color: Colors.white, size: 18),
+                  ),
+                ),
               ),
             ],
           ),

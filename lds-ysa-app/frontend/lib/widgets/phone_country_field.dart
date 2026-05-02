@@ -171,7 +171,7 @@ class _PhoneCountryFieldState extends State<PhoneCountryField> {
   }
 
   void _showCountryPicker() {
-    final _searchCtrl = TextEditingController();
+    final searchCtrl = TextEditingController();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -180,7 +180,7 @@ class _PhoneCountryFieldState extends State<PhoneCountryField> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) {
-          final query = _searchCtrl.text.toLowerCase();
+          final query = searchCtrl.text.toLowerCase();
           final filtered = kCountries
             .where((c) =>
               c[2].toLowerCase().contains(query) ||
@@ -205,7 +205,7 @@ class _PhoneCountryFieldState extends State<PhoneCountryField> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
-                  controller: _searchCtrl,
+                  controller: searchCtrl,
                   autofocus: true,
                   style: const TextStyle(color: Colors.white),
                   onChanged: (_) => setModal(() {}),

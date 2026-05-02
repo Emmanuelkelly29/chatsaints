@@ -106,7 +106,7 @@ class _MeetingLobbyScreenState extends State<MeetingLobbyScreen> {
                   TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0, end: 1),
                     duration: const Duration(seconds: 2),
-                    builder: (ctx, v, _) => CircularProgressIndicator(value: null),
+                    builder: (ctx, v, _) => const CircularProgressIndicator(value: null),
                   ),
                   const SizedBox(height: 32),
                   Text(

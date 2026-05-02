@@ -77,11 +77,13 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
     setState(() { _loadingReceived = true; _errorReceived = null; });
     try {
       final data = await _api.get('/announcements');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _received = List<Map<String, dynamic>>.from(data['announcements'] ?? []);
         _unread   = data['unread_count'] as int? ?? 0;
         _loadingReceived = false;
       });
+      }
     } catch (e) {
       if (mounted) setState(() { _loadingReceived = false; _errorReceived = e.toString(); });
     }
@@ -91,10 +93,12 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
     setState(() { _loadingSent = true; _errorSent = null; });
     try {
       final data = await _api.get('/announcements/sent');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _sent = List<Map<String, dynamic>>.from(data['announcements'] ?? []);
         _loadingSent = false;
       });
+      }
     } catch (e) {
       if (mounted) setState(() { _loadingSent = false; _errorSent = e.toString(); });
     }
@@ -103,23 +107,27 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
   Future<void> _markRead(String id) async {
     try {
       await _api.patch('/announcements/$id/read', {});
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         final idx = _received.indexWhere((a) => a['id'] == id);
         if (idx >= 0 && _received[idx]['is_read'] == false) {
           _received[idx] = {..._received[idx], 'is_read': true};
           if (_unread > 0) _unread--;
         }
       });
+      }
     } catch (_) {}
   }
 
   Future<void> _markAllRead() async {
     try {
       await _api.patch('/announcements/read-all', {});
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _received = _received.map((a) => {...a, 'is_read': true}).toList();
         _unread = 0;
       });
+      }
     } catch (_) {}
   }
 
@@ -263,13 +271,13 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
 
   Widget _buildReceivedList() {
     if (_loadingReceived) return const Center(child: CircularProgressIndicator());
-    if (_errorReceived != null) return Center(child: Text(_errorReceived!, style: TextStyle(color: AppTheme.textSecondary)));
+    if (_errorReceived != null) return Center(child: Text(_errorReceived!, style: const TextStyle(color: AppTheme.textSecondary)));
     if (_received.isEmpty) return _emptyState('No announcements yet', Icons.announcement_outlined);
     return RefreshIndicator(
       onRefresh: _loadReceived,
       child: ListView.separated(
         itemCount: _received.length,
-        separatorBuilder: (_, __) => Divider(height: 1, color: AppTheme.surface),
+        separatorBuilder: (_, __) => const Divider(height: 1, color: AppTheme.surface),
         itemBuilder: (_, i) {
           final ann = _received[i];
           final isUnread = ann['is_read'] == false;
@@ -287,13 +295,13 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
 
   Widget _buildSentList() {
     if (_loadingSent) return const Center(child: CircularProgressIndicator());
-    if (_errorSent != null) return Center(child: Text(_errorSent!, style: TextStyle(color: AppTheme.textSecondary)));
+    if (_errorSent != null) return Center(child: Text(_errorSent!, style: const TextStyle(color: AppTheme.textSecondary)));
     if (_sent.isEmpty) return _emptyState('No sent announcements', Icons.send_outlined);
     return RefreshIndicator(
       onRefresh: _loadSent,
       child: ListView.separated(
         itemCount: _sent.length,
-        separatorBuilder: (_, __) => Divider(height: 1, color: AppTheme.surface),
+        separatorBuilder: (_, __) => const Divider(height: 1, color: AppTheme.surface),
         itemBuilder: (_, i) {
           final ann = _sent[i];
           final recipientCount = ann['recipient_count'] ?? 0;
@@ -318,22 +326,22 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
                     Row(children: [
                       Expanded(
                         child: Text(ann['title'] as String? ?? '',
-                          style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary, fontSize: 15),
+                          style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary, fontSize: 15),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                       ),
                       Text(_formatTime(ann['created_at'] as String?),
-                          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                     ]),
                     const SizedBox(height: 4),
                     Text(ann['body'] as String? ?? '',
-                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                         maxLines: 2, overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 6),
                     Row(children: [
-                      Icon(Icons.done_all, size: 13, color: AppTheme.accent),
+                      const Icon(Icons.done_all, size: 13, color: AppTheme.accent),
                       const SizedBox(width: 4),
                       Text('$readCount / $recipientCount read',
-                          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                       const Spacer(),
                       GestureDetector(
                         onTap: () => _openEdit(ann),
@@ -343,9 +351,9 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
                             color: AppTheme.accent.withOpacity(0.12),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          child: const Row(mainAxisSize: MainAxisSize.min, children: [
                             Icon(Icons.edit_outlined, size: 13, color: AppTheme.accent),
-                            const SizedBox(width: 4),
+                            SizedBox(width: 4),
                             Text('Edit', style: TextStyle(color: AppTheme.accent, fontSize: 12, fontWeight: FontWeight.w600)),
                           ]),
                         ),
@@ -396,14 +404,14 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
             ]),
             const SizedBox(height: 4),
             Text(ann['body'] as String? ?? '',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                 maxLines: 2, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 6),
             Row(children: [
-              Icon(Icons.person_outline, size: 13, color: AppTheme.textSecondary),
+              const Icon(Icons.person_outline, size: 13, color: AppTheme.textSecondary),
               const SizedBox(width: 4),
               Text(ann['sender_name'] as String? ?? 'Leader',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -412,7 +420,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(_scopeLabel(ann['scope'] as String?),
-                    style: TextStyle(color: AppTheme.accent, fontSize: 11)),
+                    style: const TextStyle(color: AppTheme.accent, fontSize: 11)),
               ),
               if (_audienceLabel(ann['audience'] as String?).isNotEmpty) ...[
                 const SizedBox(width: 4),
@@ -446,7 +454,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 64, color: AppTheme.textSecondary),
         const SizedBox(height: 16),
-        Text(text, style: TextStyle(color: AppTheme.textSecondary, fontSize: 16)),
+        Text(text, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 16)),
       ]),
     );
   }
@@ -467,7 +475,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
             Icon(_scopeIcon(ann['scope'] as String?), color: AppTheme.accent),
             const SizedBox(width: 8),
             Text(_scopeLabel(ann['scope'] as String?),
-                style: TextStyle(color: AppTheme.accent, fontWeight: FontWeight.w600)),
+                style: const TextStyle(color: AppTheme.accent, fontWeight: FontWeight.w600)),
             const Spacer(),
             if (isSent)
               TextButton.icon(
@@ -482,31 +490,31 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
           ]),
           const SizedBox(height: 12),
           Text(ann['title'] as String? ?? '',
-              style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.w700)),
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           if (!isSent) ...[
             Row(children: [
-              Icon(Icons.person_outline, size: 14, color: AppTheme.textSecondary),
+              const Icon(Icons.person_outline, size: 14, color: AppTheme.textSecondary),
               const SizedBox(width: 4),
               Text('${ann['sender_name']} · ${(ann['sender_role'] as String?)?.replaceAll('_', ' ') ?? ''}',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
             ]),
             const SizedBox(height: 4),
           ],
           Text(_formatTime(ann['created_at'] as String?),
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
           if (isSent) ...[
             const SizedBox(height: 4),
             Row(children: [
-              Icon(Icons.done_all, size: 14, color: AppTheme.accent),
+              const Icon(Icons.done_all, size: 14, color: AppTheme.accent),
               const SizedBox(width: 4),
               Text('${ann['read_count'] ?? 0} / ${ann['recipient_count'] ?? 0} recipients read',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
             ]),
           ],
           const Divider(height: 24),
           Text(ann['body'] as String? ?? '',
-              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15, height: 1.6)),
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15, height: 1.6)),
           const SizedBox(height: 40),
         ]),
       ),
@@ -556,20 +564,24 @@ class _AudienceConfig {
 
 _AudienceConfig _configForRole(String role) {
   // Locked â€” no choice
-  if (['ysa_rep','ysa_adviser'].contains(role))
+  if (['ysa_rep','ysa_adviser'].contains(role)) {
     return const _AudienceConfig.locked('ysa_only', 'YSA Members in your stake only');
-  if (['mission_president','mission_president_wife'].contains(role))
+  }
+  if (['mission_president','mission_president_wife'].contains(role)) {
     return const _AudienceConfig.locked('missionaries_only', 'Missionaries in your mission only');
+  }
   // Bishop â€” limited single-select within his ward/stake
-  if (role == 'bishop')
+  if (role == 'bishop') {
     return const _AudienceConfig.single(
         ['ysa_only','missionaries_only','ysa_and_missionaries','ward_leaders','all']);
+  }
   // Stake/district-level leaders â€” single-select
-  if (['stake_presidency','district_presidency','coordinating_council','area_authority'].contains(role))
+  if (['stake_presidency','district_presidency','coordinating_council','area_authority'].contains(role)) {
     return const _AudienceConfig.single([
       'ysa_only','missionaries_only','ysa_and_missionaries',
       'ward_leaders','stake_district_presidents','all_leaders','all',
     ]);
+  }
   // Global leaders â€” multi-select
   return const _AudienceConfig.multi([
     'ysa_only','missionaries_only','ysa_and_missionaries',
@@ -638,9 +650,9 @@ class _EditSheetState extends State<_EditSheet> {
       minChildSize: 0.5,
       maxChildSize: 0.95,
       builder: (context, scrollCtrl) => Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: AppTheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: ListView(controller: scrollCtrl, padding: EdgeInsets.only(
           left: 20, right: 20, top: 12,
@@ -653,14 +665,14 @@ class _EditSheetState extends State<_EditSheet> {
           Row(children: [
             const Icon(Icons.edit_outlined, color: AppTheme.accent),
             const SizedBox(width: 8),
-            Text('Edit Announcement',
+            const Text('Edit Announcement',
                 style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.w700)),
             const Spacer(),
-            IconButton(icon: Icon(Icons.close, color: AppTheme.textSecondary),
+            IconButton(icon: const Icon(Icons.close, color: AppTheme.textSecondary),
                 onPressed: () => Navigator.pop(context)),
           ]),
           const SizedBox(height: 20),
-          Text('Title', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
+          const Text('Title', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           TextField(
             controller: _titleCtrl,
@@ -670,11 +682,11 @@ class _EditSheetState extends State<_EditSheet> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             ),
-            style: TextStyle(color: AppTheme.textPrimary),
+            style: const TextStyle(color: AppTheme.textPrimary),
             textCapitalization: TextCapitalization.sentences,
           ),
           const SizedBox(height: 14),
-          Text('Message', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
+          const Text('Message', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           TextField(
             controller: _bodyCtrl,
@@ -685,7 +697,7 @@ class _EditSheetState extends State<_EditSheet> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               contentPadding: const EdgeInsets.all(14),
             ),
-            style: TextStyle(color: AppTheme.textPrimary),
+            style: const TextStyle(color: AppTheme.textPrimary),
             textCapitalization: TextCapitalization.sentences,
           ),
           const SizedBox(height: 20),
@@ -791,7 +803,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                     borderRadius: BorderRadius.circular(2)))),
             Padding(padding: const EdgeInsets.fromLTRB(20, 12, 8, 4),
               child: Row(children: [
-                Text('Select Recipients',
+                const Text('Select Recipients',
                     style: TextStyle(color: AppTheme.textPrimary,
                         fontSize: 16, fontWeight: FontWeight.w700)),
                 const Spacer(),
@@ -801,7 +813,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                     setState(() => _audiences = temp.toList());
                     Navigator.pop(ctx);
                   },
-                  child: Text('Done',
+                  child: const Text('Done',
                       style: TextStyle(color: AppTheme.accent, fontWeight: FontWeight.w700)),
                 ),
               ]),
@@ -816,10 +828,10 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                 controlAffinity: ListTileControlAffinity.trailing,
                 secondary: Icon(opt.icon, color: AppTheme.accent, size: 22),
                 title: Text(opt.label,
-                    style: TextStyle(color: AppTheme.textPrimary,
+                    style: const TextStyle(color: AppTheme.textPrimary,
                         fontSize: 14, fontWeight: FontWeight.w600)),
                 subtitle: Text(opt.description,
-                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                 onChanged: (val) {
                   setSheet(() {
                     if (val == true) {
@@ -864,9 +876,9 @@ class _ComposeSheetState extends State<_ComposeSheet> {
       minChildSize: 0.5,
       maxChildSize: 0.95,
       builder: (context, scrollCtrl) => Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: AppTheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: ListView(controller: scrollCtrl, padding: EdgeInsets.only(
           left: 20, right: 20, top: 12,
@@ -882,17 +894,17 @@ class _ComposeSheetState extends State<_ComposeSheet> {
           Row(children: [
             const Icon(Icons.announcement_outlined, color: AppTheme.accent),
             const SizedBox(width: 8),
-            Text('New Announcement',
+            const Text('New Announcement',
                 style: TextStyle(color: AppTheme.textPrimary, fontSize: 18,
                     fontWeight: FontWeight.w700)),
             const Spacer(),
-            IconButton(icon: Icon(Icons.close, color: AppTheme.textSecondary),
+            IconButton(icon: const Icon(Icons.close, color: AppTheme.textSecondary),
                 onPressed: () => Navigator.pop(context)),
           ]),
           const SizedBox(height: 20),
 
           // â”€â”€ Send To â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-          Text('Send To',
+          const Text('Send To',
               style: TextStyle(color: AppTheme.textSecondary,
                   fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
@@ -907,10 +919,10 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(children: [
-                Icon(Icons.lock_outline, size: 16, color: AppTheme.textSecondary),
+                const Icon(Icons.lock_outline, size: 16, color: AppTheme.textSecondary),
                 const SizedBox(width: 10),
                 Expanded(child: Text(_config.lockedLabel,
-                    style: TextStyle(color: AppTheme.textPrimary, fontSize: 14))),
+                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14))),
               ]),
             ),
 
@@ -942,10 +954,10 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(opt.label,
-                                style: TextStyle(color: AppTheme.textPrimary,
+                                style: const TextStyle(color: AppTheme.textPrimary,
                                     fontSize: 14, fontWeight: FontWeight.w600)),
                             Text(opt.description,
-                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
+                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
                           ],
                         )),
                       ]),
@@ -967,10 +979,10 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(children: [
-                  Icon(Icons.people_alt_outlined, size: 18, color: AppTheme.accent),
+                  const Icon(Icons.people_alt_outlined, size: 18, color: AppTheme.accent),
                   const SizedBox(width: 10),
                   Expanded(child: _audiences.isEmpty
-                      ? Text('Tap to select recipients...',
+                      ? const Text('Tap to select recipients...',
                           style: TextStyle(color: AppTheme.textSecondary, fontSize: 14))
                       : Wrap(spacing: 6, runSpacing: 4,
                           children: _audiences.map((v) {
@@ -982,13 +994,13 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(opt.label,
-                                  style: TextStyle(color: AppTheme.accent,
+                                  style: const TextStyle(color: AppTheme.accent,
                                       fontSize: 12, fontWeight: FontWeight.w600)),
                             );
                           }).toList(),
                         )),
                   const SizedBox(width: 4),
-                  Icon(Icons.arrow_drop_down, color: AppTheme.textSecondary),
+                  const Icon(Icons.arrow_drop_down, color: AppTheme.textSecondary),
                 ]),
               ),
             ),
@@ -996,7 +1008,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
           const SizedBox(height: 20),
 
           // â”€â”€ Title â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-          Text('Title', style: TextStyle(color: AppTheme.textSecondary,
+          const Text('Title', style: TextStyle(color: AppTheme.textSecondary,
               fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           TextField(
@@ -1008,13 +1020,13 @@ class _ComposeSheetState extends State<_ComposeSheet> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             ),
-            style: TextStyle(color: AppTheme.textPrimary),
+            style: const TextStyle(color: AppTheme.textPrimary),
             textCapitalization: TextCapitalization.sentences,
           ),
           const SizedBox(height: 14),
 
           // â”€â”€ Message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-          Text('Message', style: TextStyle(color: AppTheme.textSecondary,
+          const Text('Message', style: TextStyle(color: AppTheme.textSecondary,
               fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           TextField(
@@ -1027,7 +1039,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               contentPadding: const EdgeInsets.all(14),
             ),
-            style: TextStyle(color: AppTheme.textPrimary),
+            style: const TextStyle(color: AppTheme.textPrimary),
             textCapitalization: TextCapitalization.sentences,
           ),
           const SizedBox(height: 20),

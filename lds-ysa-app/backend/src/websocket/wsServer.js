@@ -13,6 +13,52 @@ const userSockets = new Map();
 
 const getOnlineUserIds = () => new Set(userSockets.keys());
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isUuid = (value) => typeof value === 'string' && UUID_RE.test(value);
+
+const sendError = (ws, message) => {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'error', payload: { message } }));
+  }
+};
+
+const formatDuration = (seconds) => {
+  const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  const mins = String(Math.floor(total / 60)).padStart(2, '0');
+  const secs = String(total % 60).padStart(2, '0');
+  return `${mins}:${secs}`;
+};
+
+const logConversationCallEvent = async ({ conversationId, actorId, actorName, content }) => {
+  if (!isUuid(conversationId) || !isUuid(actorId) || !content) return;
+
+  const msgId = uuidv4();
+  const createdAt = new Date().toISOString();
+
+  await query(
+    `INSERT INTO messages (id, conversation_id, sender_id, type, content)
+     VALUES ($1,$2,$3,'text',$4)`,
+    [msgId, conversationId, actorId, content]
+  );
+  await query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [conversationId]);
+
+  await broadcastToConversation(conversationId, {
+    type: 'new_message',
+    payload: {
+      id: msgId,
+      conversation_id: conversationId,
+      sender_id: actorId,
+      sender_name: actorName,
+      type: 'text',
+      content,
+      media_url: null,
+      created_at: createdAt,
+      reply_to_message_id: null,
+    },
+  });
+};
+
 const getUserFromToken = async (token) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -214,6 +260,13 @@ const handleMessage = async (ws, user, rawData) => {
         type: 'call_initiated',
         payload: { call_id: callId, any_receiver_online: anyReceiverOnline },
       }));
+
+      await logConversationCallEvent({
+        conversationId: conversation_id,
+        actorId: user.id,
+        actorName: user.full_name,
+        content: call_type === 'video' ? '🎥 Video call started' : '📞 Voice call started',
+      });
       break;
     }
 
@@ -232,6 +285,10 @@ const handleMessage = async (ws, user, rawData) => {
 
     case 'call_accepted': {
       const { call_id, conversation_id } = payload;
+      if (!isUuid(call_id)) {
+        sendError(ws, 'Invalid call_id');
+        break;
+      }
       await query(`UPDATE calls SET status='answered', started_at=COALESCE(started_at, NOW()) WHERE id=$1`, [call_id]);
       await broadcastToConversation(conversation_id,
         { type: 'call_accepted', payload: { call_id, accepted_by: user.id } }
@@ -252,24 +309,77 @@ const handleMessage = async (ws, user, rawData) => {
 
     case 'call_declined': {
       const { call_id, conversation_id } = payload;
-      await query(`UPDATE calls SET status='declined', ended_at=NOW() WHERE id=$1`, [call_id]);
-      await broadcastToConversation(conversation_id,
-        { type: 'call_declined', payload: { call_id, declined_by: user.id } }
+      if (!isUuid(call_id)) {
+        sendError(ws, 'Invalid call_id');
+        break;
+      }
+      const updated = await query(
+        `UPDATE calls SET status='declined', ended_at=NOW()
+         WHERE id=$1
+         RETURNING call_type, conversation_id`,
+        [call_id]
       );
+      const callRow = updated.rows[0];
+      const convId = (conversation_id && isUuid(conversation_id))
+        ? conversation_id
+        : (callRow?.conversation_id || null);
+
+      if (convId) {
+        await broadcastToConversation(convId,
+          { type: 'call_declined', payload: { call_id, declined_by: user.id } }
+        );
+      }
+
+      if (convId) {
+        await logConversationCallEvent({
+          conversationId: convId,
+          actorId: user.id,
+          actorName: user.full_name,
+          content: callRow?.call_type === 'video'
+            ? '🎥 Video call declined'
+            : '📞 Voice call declined',
+        });
+      }
       break;
     }
 
     case 'end_call': {
       const { call_id, conversation_id } = payload;
-      await query(
+      if (!isUuid(call_id)) {
+        sendError(ws, 'Invalid call_id');
+        break;
+      }
+      const updated = await query(
         `UPDATE calls SET status='ended', ended_at=NOW(),
          duration_seconds=EXTRACT(EPOCH FROM(NOW()-started_at))::INTEGER
-         WHERE id=$1`,
+         WHERE id=$1
+         RETURNING call_type, conversation_id, duration_seconds`,
         [call_id]
       );
-      await broadcastToConversation(conversation_id,
-        { type: 'call_ended', payload: { call_id } }
-      );
+      const callRow = updated.rows[0];
+      const convId = (conversation_id && isUuid(conversation_id))
+        ? conversation_id
+        : (callRow?.conversation_id || null);
+
+      if (convId) {
+        await broadcastToConversation(convId,
+          { type: 'call_ended', payload: { call_id } }
+        );
+      }
+
+      if (convId) {
+        const suffix = (callRow?.duration_seconds ?? 0) > 0
+          ? ` (${formatDuration(callRow.duration_seconds)})`
+          : '';
+        await logConversationCallEvent({
+          conversationId: convId,
+          actorId: user.id,
+          actorName: user.full_name,
+          content: callRow?.call_type === 'video'
+            ? `🎥 Video call ended${suffix}`
+            : `📞 Voice call ended${suffix}`,
+        });
+      }
       break;
     }
 
@@ -568,7 +678,12 @@ const initWebSocketServer = (httpServer) => {
     console.log(`WS connected: ${user.full_name} [${user.role}]`);
     ws.send(JSON.stringify({ type: 'connected', payload: { user_id: user.id } }));
 
-    ws.on('message', (data) => handleMessage(ws, user, data));
+    ws.on('message', (data) => {
+      handleMessage(ws, user, data).catch((err) => {
+        console.error('WebSocket message handling error:', err);
+        sendError(ws, 'Request failed');
+      });
+    });
 
     ws.on('close', async () => {
       userSockets.get(user.id)?.delete(ws);

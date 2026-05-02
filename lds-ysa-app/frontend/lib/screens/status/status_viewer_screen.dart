@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:video_player/video_player.dart';
 import '../../services/api_service.dart';
 import '../../models/status_model.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/constants.dart';
+import '../../widgets/voice_note_recorder.dart';
 
 class StatusViewerScreen extends StatefulWidget {
   final StatusContact contact;
@@ -21,6 +23,13 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
   Timer? _autoAdvance;
   bool _paused = false;
   bool _stealthThisView = false;
+
+  String _formatDuration(int seconds) {
+    final total = seconds < 0 ? 0 : seconds;
+    final m = (total ~/ 60).toString().padLeft(2, '0');
+    final s = (total % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
 
   List<StatusModel> get _statuses => widget.contact.statuses;
   StatusModel get _current => _statuses[_currentIndex];
@@ -137,10 +146,17 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
                 color: const Color(0xFF0A1628),
                 child: Center(
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    const Icon(Icons.audiotrack, color: Color(0xFFC9A84C), size: 72),
+                    const Icon(Icons.audiotrack, color: Color(0xFFC9A84C), size: 56),
                     const SizedBox(height: 16),
                     const Text('Voice Note', style: TextStyle(
                       color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 14),
+                    if (mediaUrl.isNotEmpty)
+                      VoiceNoteBubble(
+                        mediaUrl: mediaUrl,
+                        duration: _formatDuration(_current.durationSecs),
+                        isMe: false,
+                      ),
                     if (_current.caption != null) ...[
                       const SizedBox(height: 8),
                       Text(_current.caption!, style: const TextStyle(
@@ -158,6 +174,8 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
                 errorWidget: (_, __, ___) => const Center(
                   child: Icon(Icons.broken_image, color: Colors.white, size: 64)),
               )
+            else if (_current.mediaType == 'video' && mediaUrl.isNotEmpty)
+              _StatusVideoPlayer(mediaUrl: mediaUrl)
             else
               const Center(child: Icon(Icons.play_circle_fill,
                   color: Colors.white, size: 72)),
@@ -290,6 +308,57 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
   void dispose() {
     _progressCtrl.dispose();
     _autoAdvance?.cancel();
+    super.dispose();
+  }
+}
+
+class _StatusVideoPlayer extends StatefulWidget {
+  final String mediaUrl;
+  const _StatusVideoPlayer({required this.mediaUrl});
+
+  @override
+  State<_StatusVideoPlayer> createState() => _StatusVideoPlayerState();
+}
+
+class _StatusVideoPlayerState extends State<_StatusVideoPlayer> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.mediaUrl))
+      ..setLooping(true)
+      ..initialize().then((_) {
+        if (!mounted || _controller == null) return;
+        setState(() => _ready = true);
+        _controller!.play();
+      });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready || _controller == null) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+    return Stack(
+      alignment: Alignment.bottomCenter,
+      children: [
+        Center(
+          child: AspectRatio(
+            aspectRatio: _controller!.value.aspectRatio > 0 ? _controller!.value.aspectRatio : (16 / 9),
+            child: VideoPlayer(_controller!),
+          ),
+        ),
+        VideoProgressIndicator(_controller!, allowScrubbing: true,
+            colors: const VideoProgressColors(playedColor: Color(0xFFC9A84C))),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
     super.dispose();
   }
 }

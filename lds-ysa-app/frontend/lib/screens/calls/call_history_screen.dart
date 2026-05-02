@@ -176,14 +176,14 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!, style: TextStyle(color: AppTheme.textSecondary)))
+              ? Center(child: Text(_error!, style: const TextStyle(color: AppTheme.textSecondary)))
               : _calls.isEmpty
-                  ? Center(
+                  ? const Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.call_outlined, size: 64, color: AppTheme.textSecondary),
-                          const SizedBox(height: 16),
+                          SizedBox(height: 16),
                           Text('No calls yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 16)),
                         ],
                       ),
@@ -192,7 +192,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                       onRefresh: _load,
                       child: ListView.separated(
                         itemCount: _calls.length,
-                        separatorBuilder: (_, __) => Divider(
+                        separatorBuilder: (_, __) => const Divider(
                           height: 1, color: AppTheme.surface, indent: 72),
                         itemBuilder: (_, i) => _CallTile(
                           call:          _calls[i],
@@ -253,7 +253,7 @@ class _CallTile extends StatelessWidget {
             : null,
       ),
       title: Text(name,
-          style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600)),
+          style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600)),
       subtitle: Row(
         children: [
           Icon(directionIcon, size: 14, color: directionColor),
@@ -268,7 +268,7 @@ class _CallTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(timeLabel,
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
           if (canCallBack) ...[
             const SizedBox(width: 8),
             GestureDetector(
@@ -297,13 +297,13 @@ class _CallTile extends StatelessWidget {
           children: [
             ListTile(
               leading: const Icon(Icons.call, color: Colors.greenAccent),
-              title: Text('Voice Call',
+              title: const Text('Voice Call',
                   style: TextStyle(color: AppTheme.textPrimary)),
               onTap: () { Navigator.pop(context); onCallBack('voice'); },
             ),
             ListTile(
               leading: const Icon(Icons.videocam, color: Colors.blueAccent),
-              title: Text('Video Call',
+              title: const Text('Video Call',
                   style: TextStyle(color: AppTheme.textPrimary)),
               onTap: () { Navigator.pop(context); onCallBack('video'); },
             ),

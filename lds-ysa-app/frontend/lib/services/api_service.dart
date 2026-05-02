@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image_picker/image_picker.dart' show XFile;
 import '../utils/constants.dart';
@@ -113,9 +114,22 @@ class ApiService {
 
     if (kIsWeb) {
       final bytes = await xfile.readAsBytes();
+      final rawName = xfile.name.trim();
+      final fallbackFromPath = xfile.path.split('/').last.split('\\').last;
+      final filename = rawName.isNotEmpty
+          ? rawName
+          : (fallbackFromPath.isNotEmpty ? fallbackFromPath : 'upload.webm');
+      final lower = filename.toLowerCase();
+      MediaType? contentType;
+      if (lower.endsWith('.webm')) contentType = MediaType('audio', 'webm');
+      if (lower.endsWith('.m4a') || lower.endsWith('.mp4')) contentType = MediaType('audio', 'mp4');
+      if (lower.endsWith('.mp3')) contentType = MediaType('audio', 'mpeg');
+      if (lower.endsWith('.wav')) contentType = MediaType('audio', 'wav');
+
       request.files.add(http.MultipartFile.fromBytes(
         'file', bytes,
-        filename: xfile.name,
+        filename: filename,
+        contentType: contentType,
       ));
     } else {
       request.files.add(await http.MultipartFile.fromPath('file', xfile.path));

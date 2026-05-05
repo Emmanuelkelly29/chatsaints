@@ -98,9 +98,37 @@ sudo systemctl start redis
    DB_PASSWORD=the_password_you_set_during_postgresql_install
    JWT_SECRET=make_up_any_long_random_string_at_least_64_characters
    ```
-   Leave everything else as-is for now.
 
-4. Install backend packages (only needed once):
+4. Configure SMTP for OTP email delivery (required for registration/login OTP):
+
+   Important:
+   - Users can register with any email provider/domain (Gmail, Outlook, Yahoo, Proton, custom business domains).
+   - Your app uses one outbound SMTP provider/account to send OTPs to all recipient domains.
+
+   Option A (recommended): SMTP URL
+   ```
+   SMTP_URL=smtp://username:password@mail.yourprovider.com:587
+   # or SSL/TLS
+   SMTP_URL=smtps://username:password@mail.yourprovider.com:465
+   MAIL_FROM="ChatSaints" <no-reply@yourdomain.com>
+   ```
+
+   Option B: Host/port/user/pass variables
+   ```
+   SMTP_HOST=mail.yourprovider.com
+   SMTP_PORT=587
+   SMTP_SECURE=false
+   SMTP_USER=your-smtp-username
+   SMTP_PASS=your-smtp-password
+   MAIL_FROM="ChatSaints" <no-reply@yourdomain.com>
+   ```
+
+   Provider examples:
+   - Gmail SMTP: host `smtp.gmail.com`, port `587`, secure `false`, user = Gmail address, pass = App Password
+   - Outlook/Office365 SMTP: host `smtp.office365.com`, port `587`, secure `false`
+   - Custom domain mailbox: use your hosting provider SMTP host/credentials (Zoho, cPanel, Workspace, etc.)
+
+5. Install backend packages (only needed once):
    ```
    npm install
    ```

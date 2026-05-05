@@ -9,7 +9,8 @@ import 'register_screen.dart';
 import '../home/home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final bool sessionExpired;
+  const LoginScreen({super.key, this.sessionExpired = false});
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
@@ -31,7 +32,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (email.isEmpty || !email.contains('@')) { _snack('Please enter a valid email address'); return; }
     setState(() => _loading = true);
     try {
-      await ApiService().post('/auth/send-otp', {'email': email});
+      if (widget.sessionExpired) {
+        await AuthService().sendSessionOtp(email);
+      } else {
+        await ApiService().post('/auth/send-otp', {'email': email});
+      }
       setState(() { _otpSent = true; _showOtpField = true; });
       _snack('Verification code sent to $email', success: true);
     } catch (e) {
@@ -47,10 +52,14 @@ class _LoginScreenState extends State<LoginScreen> {
     if (otp.length < 4) { _snack('Enter the verification code'); return; }
     setState(() => _loading = true);
     try {
-      await AuthService().loginWithEmailOtp(
-        email: _emailCtrl.text.trim(),
-        otp: otp,
-      );
+      if (widget.sessionExpired) {
+        await AuthService().verifySessionOtp(identifier: _emailCtrl.text.trim(), otp: otp);
+      } else {
+        await AuthService().loginWithEmailOtp(
+          email: _emailCtrl.text.trim(),
+          otp: otp,
+        );
+      }
       final token = await ApiService().getToken();
       if (token != null) {
         try {
@@ -267,6 +276,28 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ─── Login form ───────────────────────────────────────────────────────────
   List<Widget> _loginForm() => [
+    // Session-expired banner
+    if (widget.sessionExpired) ...[
+      Container(
+        padding: const EdgeInsets.all(14),
+        margin: const EdgeInsets.only(bottom: 20),
+        decoration: BoxDecoration(
+          color: AppTheme.accent.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.accent.withOpacity(0.5)),
+        ),
+        child: const Row(children: [
+          Icon(Icons.lock_clock, color: AppTheme.accent, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Your 30-day session has expired. Enter the code sent to your registered email to sign back in.',
+              style: TextStyle(color: AppTheme.accent, fontSize: 13),
+            ),
+          ),
+        ]),
+      ),
+    ],
     // ── Email OTP mode (default) ──
     if (!_usePhoneLogin) ...[
       // Section label

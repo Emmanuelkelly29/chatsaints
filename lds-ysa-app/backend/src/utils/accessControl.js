@@ -23,6 +23,7 @@ const HIDDEN_ROLES = new Set([
 ]);
 
 const APPROVAL_REQUIRED_ROLES = new Set([
+  'missionary',
   'ysa_rep', 'ysa_couple_adviser', 'bishop', 'stake_presidency', 'coordinating_council',
   'mission_president', 'mission_president_wife', 'area_authority', 'area_presidency',
   'general_authority', 'apostle', 'first_presidency',

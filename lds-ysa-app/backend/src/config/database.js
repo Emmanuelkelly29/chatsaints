@@ -32,4 +32,17 @@ const query = async (text, params) => {
 
 const getClient = () => pool.connect();
 
+// Run startup migrations (idempotent)
+const migrate = async () => {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false');
+    await pool.query('ALTER TABLE stakes ADD COLUMN IF NOT EXISTS continent VARCHAR(100)');
+    await pool.query('ALTER TABLE districts ADD COLUMN IF NOT EXISTS continent VARCHAR(100)');
+    console.log('[DB] Startup migration OK (email_verified column)');
+  } catch (err) {
+    console.warn('[DB] Startup migration warning:', err.message);
+  }
+};
+migrate();
+
 module.exports = { query, getClient, pool };

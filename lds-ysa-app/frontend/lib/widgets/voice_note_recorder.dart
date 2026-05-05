@@ -301,7 +301,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   @override
   Widget build(BuildContext context) {
     final fgColor   = widget.isMe ? Colors.white : AppTheme.primary;
-    final playIconColor = Colors.white;
+    const playIconColor = Colors.white;
     final playButtonBg = widget.isMe ? Colors.white24 : Colors.black54;
     final trackColor = widget.isMe ? Colors.white24 : Colors.grey.shade200;
     final fillColor  = widget.isMe ? Colors.white : AppTheme.primary;

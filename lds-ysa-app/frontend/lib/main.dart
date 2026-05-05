@@ -28,6 +28,7 @@ class ChatSaintsApp extends StatefulWidget {
 class _ChatSaintsAppState extends State<ChatSaintsApp> {
   bool _ready    = false;
   bool _loggedIn = false;
+  bool _sessionExpired = false;
   StreamSubscription? _wsSub;
 
   @override
@@ -40,6 +41,12 @@ class _ChatSaintsAppState extends State<ChatSaintsApp> {
     // Restore saved session
     final user = await AuthService().loadSavedUser();
     if (user != null) {
+      // Check if the 30-day session window has expired → force re-login via email OTP
+      if (await AuthService().isSessionExpired()) {
+        await AuthService().logout();
+        setState(() { _loggedIn = false; _sessionExpired = true; _ready = true; });
+        return;
+      }
       const storage = FlutterSecureStorage();
       final token   = await storage.read(key: StorageKeys.authToken);
       if (token != null) {
@@ -121,7 +128,7 @@ class _ChatSaintsAppState extends State<ChatSaintsApp> {
             body: Center(child: CircularProgressIndicator()))
         : _loggedIn
             ? const HomeScreen()
-            : const LoginScreen(),
+          : LoginScreen(sessionExpired: _sessionExpired),
   );
 
   @override

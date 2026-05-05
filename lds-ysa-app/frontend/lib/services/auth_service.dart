@@ -23,7 +23,7 @@ class AuthService {
     return _currentUser;
   }
 
-  Future<UserModel> register({
+  Future<Map<String, dynamic>> register({
     required String phoneNumber,
     required String fullName,
     required String dateOfBirth,
@@ -37,7 +37,7 @@ class AuthService {
     String? districtName,
     String? districtCountry,
     String? missionId,
-    String? email,
+    required String email,
   }) async {
     final res = await _api.post('/auth/register', {
       'phone_number': phoneNumber,
@@ -53,9 +53,22 @@ class AuthService {
       if (districtName != null) 'district_name': districtName,
       if (districtCountry != null) 'district_country': districtCountry,
       if (missionId != null) 'mission_id': missionId,
-      if (email != null) 'email': email,
+      'email': email,
+    });
+    // Registration now returns { pending: true, email } — no token yet.
+    return Map<String, dynamic>.from(res);
+  }
+
+  Future<UserModel> verifyRegistration({
+    required String email,
+    required String otp,
+  }) async {
+    final res = await _api.post('/auth/verify-registration', {
+      'email': email,
+      'otp': otp,
     });
     await _api.saveToken(res['token']);
+    await _saveLoginTime();
     try {
       return await refreshMe();
     } catch (_) {
@@ -74,6 +87,7 @@ class AuthService {
       'otp': otp,
     });
     await _api.saveToken(res['token']);
+    await _saveLoginTime();
     try {
       return await refreshMe();
     } catch (_) {
@@ -92,6 +106,7 @@ class AuthService {
       'otp': otp,
     });
     await _api.saveToken(res['token']);
+    await _saveLoginTime();
     try {
       return await refreshMe();
     } catch (_) {
@@ -102,14 +117,20 @@ class AuthService {
   }
 
   Future<UserModel> login({
-    required String phoneNumber,
+    String? phoneNumber,
+    String? email,
     required String password,
   }) async {
+    if ((phoneNumber == null || phoneNumber.isEmpty) && (email == null || email.isEmpty)) {
+      throw Exception('Provide phone number or email');
+    }
     final res = await _api.post('/auth/login', {
-      'phone_number': phoneNumber,
+      if (phoneNumber != null && phoneNumber.isNotEmpty) 'phone_number': phoneNumber,
+      if (email != null && email.isNotEmpty) 'email': email,
       'password': password,
     });
     await _api.saveToken(res['token']);
+    await _saveLoginTime();
     try {
       return await refreshMe();
     } catch (_) {
@@ -122,7 +143,53 @@ class AuthService {
   Future<void> logout() async {
     await _api.clearToken();
     await _storage.delete(key: StorageKeys.currentUser);
+    await _storage.delete(key: StorageKeys.loginTimeKey);
     _currentUser = null;
+  }
+
+  // ── Session helpers ──────────────────────────────────────────────────────────
+  Future<void> _saveLoginTime() async {
+    await _storage.write(
+      key: StorageKeys.loginTimeKey,
+      value: DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+  }
+
+  /// Returns true if the user has been logged in for more than 30 days.
+  Future<bool> isSessionExpired() async {
+    final raw = await _storage.read(key: StorageKeys.loginTimeKey);
+    if (raw == null) return false;
+    final loginMs = int.tryParse(raw);
+    if (loginMs == null) return false;
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    return DateTime.now().millisecondsSinceEpoch - loginMs > thirtyDays;
+  }
+
+  Future<Map<String, dynamic>> sendSessionOtp(String identifier) async {
+    final body = identifier.contains('@')
+        ? {'email': identifier}
+        : {'phone_number': identifier};
+    return await _api.post('/auth/send-session-otp', body);
+  }
+
+  Future<UserModel> verifySessionOtp({
+    required String identifier,
+    required String otp,
+  }) async {
+    final body = {
+      if (identifier.contains('@')) 'email': identifier else 'phone_number': identifier,
+      'otp': otp,
+    };
+    final res = await _api.post('/auth/verify-session-otp', body);
+    await _api.saveToken(res['token']);
+    await _saveLoginTime();
+    try {
+      return await refreshMe();
+    } catch (_) {
+      _currentUser = UserModel.fromJson(res['user']);
+      await _storage.write(key: StorageKeys.currentUser, value: jsonEncode(res['user']));
+      return _currentUser!;
+    }
   }
 
   Future<UserModel> refreshMe() async {

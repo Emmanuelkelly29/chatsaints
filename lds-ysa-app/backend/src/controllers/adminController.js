@@ -2,7 +2,7 @@
 /**
  * ADMIN DASHBOARD CONTROLLER
  * For Area Authorities and above — gives a bird's-eye view of the platform.
- * Bishops and stake presidencies get a narrower view scoped to their unit.
+ * Bishops get a narrower view scoped to their unit.
  */
 const { query } = require('../config/database');
 const { ROLE_TIER } = require('../utils/accessControl');
@@ -11,7 +11,7 @@ const getViewerScope = (user) => {
   const tier = ROLE_TIER[user.role] || 0;
   if (tier >= 6) return 'global';     // Area Authority and above
   if (tier === 5) return 'council';   // Coordinating council
-  if (tier === 4) return 'stake';     // Stake presidency
+  if (tier === 4) return 'stake';     // Stake-level (kept for compatibility)
   if (tier === 3) return 'ward';      // Bishop
   return null;
 };
@@ -164,7 +164,7 @@ const suspendUser = async (req, res) => {
   try {
     const scope = getViewerScope(req.user);
     if (!scope || scope === 'ward') {
-      return res.status(403).json({ error: 'Stake Presidency or above required' });
+      return res.status(403).json({ error: 'Coordinating Council or above required' });
     }
 
     const { suspended, reason } = req.body;

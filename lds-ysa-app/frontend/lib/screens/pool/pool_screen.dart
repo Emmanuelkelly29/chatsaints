@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
 import '../chat/chat_screen.dart';
 import '../../models/conversation_model.dart';
@@ -84,7 +85,12 @@ class _PoolScreenState extends State<PoolScreen> {
   Future<void> _loadGlobal() async {
     setState(() { _loadingGlobal = true; _expandedStake = null; _expandedStakeMembers = []; _expandedContinents = {}; });
     try {
-      final res = await _api.get('/ysa-pool/directory-stakes${_buildFilterQueryString()}');
+      final endpoint = _isLeaderGlobal
+          ? '/ysa-pool/leader-directory'
+          : _isMissionaryGlobal
+              ? '/ysa-pool/missionary-directory'
+              : '/ysa-pool/directory-stakes${_buildFilterQueryString()}';
+      final res = await _api.get(endpoint);
       final list = (res['stakes'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
       if (mounted) {
         setState(() {
@@ -102,7 +108,12 @@ class _PoolScreenState extends State<PoolScreen> {
     if (!_showGlobal || _expandedStake != null) return;
     setState(() => _loadingGlobal = true);
     try {
-      final res = await _api.get('/ysa-pool/directory-stakes${_buildFilterQueryString()}');
+      final endpoint = _isLeaderGlobal
+          ? '/ysa-pool/leader-directory'
+          : _isMissionaryGlobal
+              ? '/ysa-pool/missionary-directory'
+              : '/ysa-pool/directory-stakes${_buildFilterQueryString()}';
+      final res = await _api.get(endpoint);
       final list = (res['stakes'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
       if (mounted) setState(() { _stakeGroups = list; _loadingGlobal = false; });
     } catch (_) {
@@ -122,7 +133,12 @@ class _PoolScreenState extends State<PoolScreen> {
     setState(() { _expandedStake = stake; _expandedStakeMembers = []; _loadingStakeMembers = true; });
     try {
       final stakeId = stake['stake_id'] as String;
-      final res = await _api.get('/ysa-pool/stake-members/$stakeId');
+      final endpoint = _isLeaderGlobal
+          ? '/ysa-pool/leader-members/$stakeId'
+          : _isMissionaryGlobal
+              ? '/ysa-pool/missionary-mission-members/$stakeId'
+              : '/ysa-pool/stake-members/$stakeId';
+      final res = await _api.get(endpoint);
       final members = (res['members'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
       if (mounted) {
         setState(() {
@@ -187,6 +203,15 @@ class _PoolScreenState extends State<PoolScreen> {
   }
 
   bool get _hasActiveFilter => _selectedAges.isNotEmpty || _genderFilter != 'all';
+
+  /// True when the current user is a stake or district president — they see peer leaders globally
+  bool get _isLeaderGlobal =>
+      const {'stake_presidency', 'district_presidency'}
+          .contains(AuthService().currentUser?.role ?? '');
+
+  /// True when the current user is a missionary — they see fellow missionaries globally
+  bool get _isMissionaryGlobal =>
+      AuthService().currentUser?.role == 'missionary';
 
   // Stake groups filtered by search (stake name, country, continent)
   List<Map<String, dynamic>> get _filteredStakeGroups {
@@ -574,18 +599,19 @@ class _PoolScreenState extends State<PoolScreen> {
           ]),
         ),
       ),
-      GestureDetector(
-        onTap: () => setState(() => _showFilterPanel = !_showFilterPanel),
-        child: Container(
-          width: 34, height: 34,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: _hasActiveFilter ? AppTheme.accent : AppTheme.surface,
+      if (!((_isLeaderGlobal || _isMissionaryGlobal) && _showGlobal))
+        GestureDetector(
+          onTap: () => setState(() => _showFilterPanel = !_showFilterPanel),
+          child: Container(
+            width: 34, height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _hasActiveFilter ? AppTheme.accent : AppTheme.surface,
+            ),
+            child: Icon(Icons.tune,
+              color: _hasActiveFilter ? AppTheme.background : AppTheme.accent, size: 17),
           ),
-          child: Icon(Icons.tune,
-            color: _hasActiveFilter ? AppTheme.background : AppTheme.accent, size: 17),
         ),
-      ),
     ]),
   );
 
@@ -772,15 +798,24 @@ class _PoolScreenState extends State<PoolScreen> {
             const Padding(padding: EdgeInsets.all(32),
               child: Center(child: CircularProgressIndicator(color: AppTheme.accent)))
           else if (_expandedStakeMembers.isEmpty)
-            _buildEmpty('No YSA members in this stake yet.')
+            _buildEmpty(_isLeaderGlobal
+                ? 'No stake or district presidents found for this unit.'
+                : _isMissionaryGlobal
+                    ? 'No missionaries found in this mission.'
+                    : 'No YSA members in this stake yet.')
           else ..._applyFilters(_expandedStakeMembers).map(_buildMemberCard),
           if (!_loadingStakeMembers && _expandedStakeMembers.isNotEmpty &&
               _applyFilters(_expandedStakeMembers).isEmpty)
             _buildEmpty('No members match the filters.'),
         ] else ...[                        // continent-grouped stake list
-          _buildSectionHeader('WORLDWIDE STAKES', _filteredStakeGroups.length),
+          _buildSectionHeader(
+            _isLeaderGlobal ? 'WORLDWIDE UNITS' : _isMissionaryGlobal ? 'WORLDWIDE MISSIONS' : 'WORLDWIDE STAKES',
+            _filteredStakeGroups.length,
+          ),
           if (_filteredStakeGroups.isEmpty)
-            _buildEmpty(_search.isNotEmpty ? 'No stakes match "$_search".' : 'No stakes found worldwide.')
+            _buildEmpty(_search.isNotEmpty
+                ? (_isLeaderGlobal ? 'No units match "$_search".' : _isMissionaryGlobal ? 'No missions match "$_search".' : 'No stakes match "$_search".')
+                : (_isLeaderGlobal ? 'No units found worldwide.' : _isMissionaryGlobal ? 'No missions found worldwide.' : 'No stakes found worldwide.'))
           else
             ..._buildContinentGroupedView(),
         ],
@@ -799,8 +834,12 @@ class _PoolScreenState extends State<PoolScreen> {
       final totalYsa = units.fold<int>(0, (sum, sg) {
         return sum + (int.tryParse(sg['member_count']?.toString() ?? '0') ?? 0);
       });
-      final stakeCount = units.where((u) => (u['unit_type'] ?? 'stake') == 'stake').length;
-      final districtCount = units.where((u) => u['unit_type'] == 'district').length;
+      final stakeCount = _isMissionaryGlobal
+          ? units.length
+          : units.where((u) => (u['unit_type'] ?? 'stake') == 'stake').length;
+      final districtCount = _isMissionaryGlobal
+          ? 0
+          : units.where((u) => u['unit_type'] == 'district').length;
       widgets.add(_buildContinentHeader(continent, stakeCount, districtCount, totalYsa, isExpanded));
       if (isExpanded) widgets.addAll(units.map(_buildStakeRow));
     }
@@ -808,9 +847,16 @@ class _PoolScreenState extends State<PoolScreen> {
   }
 
   Widget _buildContinentHeader(String continent, int stakeCount, int districtCount, int ysaCount, bool isExpanded) {
-    final subLabel = districtCount > 0
-      ? '$stakeCount stake${stakeCount != 1 ? "s" : ""}, $districtCount district${districtCount != 1 ? "s" : ""} · $ysaCount YSA'
-      : '$stakeCount stake${stakeCount != 1 ? "s" : ""} · $ysaCount YSA';
+    final countLabel = _isLeaderGlobal
+        ? '$ysaCount president${ysaCount != 1 ? "s" : ""}'
+        : _isMissionaryGlobal
+            ? '$ysaCount ${ysaCount != 1 ? "missionaries" : "missionary"} serving'
+            : '$ysaCount YSA';
+    final subLabel = _isMissionaryGlobal
+        ? '$stakeCount mission${stakeCount != 1 ? "s" : ""} · $countLabel'
+        : districtCount > 0
+            ? '$stakeCount stake${stakeCount != 1 ? "s" : ""}, $districtCount district${districtCount != 1 ? "s" : ""} · $countLabel'
+            : '$stakeCount stake${stakeCount != 1 ? "s" : ""} · $countLabel';
     return GestureDetector(
       onTap: () => setState(() {
         if (_expandedContinents.contains(continent)) {
@@ -871,7 +917,7 @@ class _PoolScreenState extends State<PoolScreen> {
           child: const Row(children: [
             Icon(Icons.arrow_back, color: AppTheme.accent, size: 16),
             SizedBox(width: 6),
-            Text('Back to All Stakes', style: TextStyle(color: AppTheme.accent, fontSize: 13)),
+            Text('Back to All Units', style: TextStyle(color: AppTheme.accent, fontSize: 13)),
           ]),
         ),
       ),
@@ -879,28 +925,36 @@ class _PoolScreenState extends State<PoolScreen> {
     ]);
   }
 
-  Widget _buildGlobalBanner() => Container(
-    margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: AppTheme.accent.withOpacity(0.07),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: AppTheme.accent.withOpacity(0.2)),
-    ),
-    child: const Row(children: [
-      Icon(Icons.travel_explore, color: AppTheme.accent, size: 18),
-      SizedBox(width: 10),
-      Expanded(child: Text(
-        'Browse YSA by continent and stake. Search by country, stake, or continent name.',
-        style: TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
-      )),
-    ]),
-  );
+  Widget _buildGlobalBanner() {
+    final text = _isLeaderGlobal
+        ? 'Browse Stake & District Presidents worldwide. Connect with fellow leaders by continent and unit.'
+        : _isMissionaryGlobal
+            ? 'Browse missionaries worldwide by mission. Connect with fellow servants of God.'
+            : 'Browse YSA by continent and stake. Search by country, stake, or continent name.';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.accent.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.accent.withOpacity(0.2)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.travel_explore, color: AppTheme.accent, size: 18),
+        const SizedBox(width: 10),
+        Expanded(child: Text(
+          text,
+          style: const TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
+        )),
+      ]),
+    );
+  }
 
   Widget _buildStakeRow(Map<String, dynamic> stakeGroup) {
     final stakeName = stakeGroup['stake_name'] as String? ?? 'Unknown Stake';
     final country = stakeGroup['country'] as String? ?? '';
     final displayName = country.isNotEmpty ? '$country · $stakeName' : stakeName;
+    final isMission = (stakeGroup['unit_type'] as String? ?? 'stake') == 'mission';
     final isDistrict = (stakeGroup['unit_type'] as String? ?? 'stake') == 'district';
     // member_count comes live from DB — reflects current pool membership in real time
     final memberCount = int.tryParse(stakeGroup['member_count']?.toString() ?? '0') ?? 0;
@@ -919,12 +973,12 @@ class _PoolScreenState extends State<PoolScreen> {
           Container(
             width: 36, height: 36,
             decoration: BoxDecoration(
-              color: (isDistrict ? Colors.orange : AppTheme.accent).withOpacity(0.10),
+              color: (isDistrict ? Colors.orange : isMission ? Colors.green : AppTheme.accent).withOpacity(0.10),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
-              isDistrict ? Icons.church : Icons.location_city,
-              color: isDistrict ? Colors.orange : AppTheme.accent,
+              isDistrict ? Icons.church : isMission ? Icons.tour : Icons.location_city,
+              color: isDistrict ? Colors.orange : isMission ? Colors.green : AppTheme.accent,
               size: 18),
           ),
           const SizedBox(width: 10),
@@ -945,7 +999,11 @@ class _PoolScreenState extends State<PoolScreen> {
                 ),
             ]),
             const SizedBox(height: 2),
-            Text('$memberCount YSA member${memberCount != 1 ? "s" : ""}',
+            Text(_isLeaderGlobal
+                ? '$memberCount president${memberCount != 1 ? "s" : ""}'
+                : _isMissionaryGlobal
+                    ? '$memberCount ${memberCount != 1 ? "missionaries" : "missionary"}'
+                    : '$memberCount YSA member${memberCount != 1 ? "s" : ""}',
               style: const TextStyle(color: Colors.white54, fontSize: 11)),
           ])),
           const SizedBox(width: 8),
@@ -955,7 +1013,7 @@ class _PoolScreenState extends State<PoolScreen> {
               color: (isDistrict ? Colors.orange : AppTheme.accent).withOpacity(0.15),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Text('$memberCount YSA', style: TextStyle(
+            child: Text(_isLeaderGlobal ? '$memberCount Leader' : '$memberCount YSA', style: TextStyle(
               color: isDistrict ? Colors.orange : AppTheme.accent,
               fontSize: 12, fontWeight: FontWeight.w700)),
           ),

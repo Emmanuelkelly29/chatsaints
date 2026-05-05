@@ -24,6 +24,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _loading = false;
   bool _obscure = true;
   int _step = 0; // 0=personal, 1=church, 2=account
+  // OTP verification step
+  final _otpRegCtrl = TextEditingController();
+  String _pendingEmail = '';
 
   // Stakes
   List<Map<String, dynamic>> _stakes = [];
@@ -98,17 +101,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
   ];
 
   Future<void> _register() async {
-    if (!_formKey.currentState!.validate() || _dob == null) {
+    if (!_formKey.currentState!.validate() || _dob == null || _emailCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all required fields including date of birth')));
+        const SnackBar(content: Text('Please fill all required fields including email and date of birth')));
       return;
     }
+    final stakeNameVal  = _stakeNameCtrl.text.trim();
+    final countryVal    = _countryCtrl.text.trim();
+    if (_role == 'stake_presidency') {
+      if (stakeNameVal.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Stake Presidency must enter stake name before proceeding')),
+        );
+        return;
+      }
+      if (countryVal.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Stake Presidency must enter country before proceeding')),
+        );
+        return;
+      }
+    }
+
     setState(() => _loading = true);
     try {
-      final stakeNameVal  = _stakeNameCtrl.text.trim();
-      final countryVal     = _countryCtrl.text.trim();
       final districtNameVal = _districtNameCtrl.text.trim();
-      await AuthService().register(
+      final res = await AuthService().register(
         phoneNumber:    _fullPhoneNumber.trim(),
         fullName:       _nameCtrl.text.trim(),
         dateOfBirth:    _dob!.toIso8601String().split('T').first,
@@ -120,8 +138,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
         stakeCountry:   countryVal.isNotEmpty ? countryVal : null,
         districtName:   districtNameVal.isNotEmpty ? districtNameVal : null,
         missionId:      _role == 'missionary' ? _missionId : null,
-        email:          _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+        email:          _emailCtrl.text.trim(),
       );
+      if (!mounted) return;
+      if ((res['pending'] == true)) {
+        setState(() {
+          _pendingEmail = (res['email'] as String?) ?? _emailCtrl.text.trim();
+          _step = 3;
+        });
+      } else {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.danger));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _verifyRegistration() async {
+    final code = _otpRegCtrl.text.trim();
+    if (code.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter the 6-digit code sent to your email'), backgroundColor: AppTheme.danger));
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await AuthService().verifyRegistration(email: _pendingEmail, otp: code);
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } catch (e) {
@@ -155,12 +201,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Progress
-              Row(children: List.generate(3, (i) => Expanded(
+              Row(children: List.generate(_step == 3 ? 4 : 3, (i) => Expanded(
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   height: 4,
                   decoration: BoxDecoration(
-                    color: i <= _step ? AppTheme.accent : AppTheme.divider,
+                    color: i <= (_step == 3 ? 3 : _step) ? AppTheme.accent : AppTheme.divider,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -186,7 +232,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextFormField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Email (optional)', prefixIcon: Icon(Icons.email)),
+                  decoration: const InputDecoration(labelText: 'Email address *', prefixIcon: Icon(Icons.email)),
+                  validator: (v) => (v == null || v.isEmpty || !v.contains('@')) ? 'Valid email address required' : null,
                 ),
                 const SizedBox(height: 14),
                 // DOB picker
@@ -238,10 +285,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     TextFormField(
                       controller: _countryCtrl,
                       decoration: const InputDecoration(
-                        labelText: 'Country',
+                        labelText: 'Country *',
                         prefixIcon: Icon(Icons.flag),
                         hintText: 'e.g. Nigeria',
                       ),
+                      validator: (v) {
+                        if (_role == 'stake_presidency' && (v == null || v.trim().isEmpty)) {
+                          return 'Enter your country';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 8),
                     Container(
@@ -255,8 +308,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         Icon(Icons.info_outline, size: 16, color: AppTheme.accent),
                         SizedBox(width: 8),
                         Expanded(child: Text(
-                          'If this stake is already in the app it will be matched automatically. '
-                          'Otherwise it will be created and future members can select it.',
+                          'If this stake and country are already in the app they will be matched automatically. '
+                          'If no match exists, it will be created and future members can select it.',
                           style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                         )),
                       ]),
@@ -381,10 +434,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
               ],
 
+              if (_step == 3) ...[
+                const Text('Verify Your Email', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Text(
+                  'A 6-digit code was sent to $_pendingEmail. Enter it below to complete your registration.',
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: _otpRegCtrl,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  style: const TextStyle(fontSize: 24, letterSpacing: 8),
+                  textAlign: TextAlign.center,
+                  decoration: const InputDecoration(
+                    labelText: 'Verification code',
+                    prefixIcon: Icon(Icons.pin),
+                    counterText: '',
+                    hintText: '------',
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _verifyRegistration,
+                    child: _loading
+                        ? const SizedBox(height: 20, width: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Text('Verify & Complete Registration'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _loading ? null : _register,
+                  child: const Text('Resend code', style: TextStyle(color: AppTheme.accent)),
+                ),
+              ],
+
               const SizedBox(height: 32),
 
               // Navigation buttons
-              Row(children: [
+              if (_step < 3) Row(children: [
                 if (_step > 0)
                   Expanded(
                     child: OutlinedButton(

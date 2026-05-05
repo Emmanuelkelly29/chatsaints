@@ -20,10 +20,29 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   final _user = AuthService().currentUser;
+  bool _shownAdminRestrictionNotice = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _shownAdminRestrictionNotice) return;
+      final role = (_user?.role ?? '').toLowerCase();
+      final restricted = {
+        'stake_presidency',
+        'mission_president',
+        'mission_president_wife',
+      }.contains(role);
+      if (restricted) {
+        _shownAdminRestrictionNotice = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Admin section is restricted for this role by policy.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    });
   }
 
   @override
@@ -33,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Role tier helper
   static const _adminRoles = {
-    'it_support', 'bishop', 'stake_presidency', 'coordinating_council', 'mission_president',
+    'it_support', 'bishop', 'coordinating_council',
     'area_authority', 'area_presidency', 'general_authority', 'apostle', 'first_presidency',
   };
 

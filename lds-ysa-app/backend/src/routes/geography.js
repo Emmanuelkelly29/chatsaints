@@ -23,8 +23,8 @@ const seniorLeader = authenticate, seniorRole = requireRole(
   'apostle', 'first_presidency', 'mission_president', 'stake_presidency'
 );
 router.patch ('/stakes/:id',    seniorLeader, seniorRole, renameStake);
-router.delete('/stakes/:id',    seniorLeader, requireRole('it_support'), deleteStake);
+router.delete('/stakes/:id',    seniorLeader, seniorRole, deleteStake);
 router.patch ('/districts/:id', seniorLeader, seniorRole, renameDistrict);
-router.delete('/districts/:id', seniorLeader, requireRole('it_support'), deleteDistrict);
+router.delete('/districts/:id', seniorLeader, seniorRole, deleteDistrict);
 
 module.exports = router;

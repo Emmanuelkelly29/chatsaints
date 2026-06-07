@@ -1,5 +1,5 @@
 name: chatsaints
-description: ChatSaints — Church Chat & Community App
+description: "ChatSaints: Church Chat & Community App"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -11,38 +11,41 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^1.2.0
-  web_socket_channel: ^2.4.0
+  web_socket_channel: ^3.0.3
   provider: ^6.1.2
-  flutter_secure_storage: ^9.0.0
+  flutter_secure_storage: ^10.3.1
   shared_preferences: ^2.2.2
   cached_network_image: ^3.3.1
   image_picker: ^1.0.7
-  file_picker: ^6.1.1
+  # Pinned to 10.x: 11.0.2's Gradle script assumes AGP 9 implies built-in
+  # Kotlin, which the Flutter template disables, so its Kotlin never compiles.
+  # Bump to 11+ once flutter_file_picker handles android.builtInKotlin=false.
+  file_picker: ^10.3.10
   url_launcher: ^6.2.5
-  flutter_webrtc: ^0.11.7
-  just_audio: ^0.9.36
+  flutter_webrtc: ^1.4.1
+  just_audio: ^0.10.5
   video_player: ^2.8.2
-  firebase_core: ^3.6.0
-  firebase_messaging: ^15.0.0
-  flutter_local_notifications: ^16.3.2
-  intl: ^0.19.0
+  firebase_core: ^4.10.0
+  firebase_messaging: ^16.3.0
+  flutter_local_notifications: ^22.0.0
+  intl: ^0.20.2
   timeago: ^3.6.1
   uuid: ^4.3.3
-  record: ^5.0.4
+  record: ^7.0.0
   cross_file: ^0.3.4
-  permission_handler: ^11.3.0
-  connectivity_plus: ^6.0.2
+  permission_handler: ^12.0.3
+  connectivity_plus: ^7.1.1
   path_provider: ^2.1.2
-  # E2EE — Signal Protocol
+  # E2EE: Signal Protocol
   cryptography: ^2.7.0
-  pointycastle: ^3.7.4
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^6.0.0
   # Icon & splash generation
-  flutter_launcher_icons: ^0.13.1
+  flutter_launcher_icons: ^0.14.4
   flutter_native_splash: ^2.3.13
 
 

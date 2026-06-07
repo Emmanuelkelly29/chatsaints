@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum AccountStatus {
@@ -83,24 +82,24 @@ model Mission {
   area      ChurchArea @relation(fields: [areaId], references: [id])
   createdAt DateTime   @default(now())
 
-  missionaries        User[] @relation("MissionaryMission")
-  president           User?  @relation("MissionPresident")
-  presidentWife       User?  @relation("MissionPresidentWife")
+  missionaries  User[] @relation("MissionaryMission")
+  president     User?  @relation("MissionPresident")
+  presidentWife User?  @relation("MissionPresidentWife")
 }
 
 model ChurchUnit {
-  id       String     @id @default(uuid())
-  name     String
-  type     UnitType
-  areaId   String?
-  area     ChurchArea? @relation(fields: [areaId], references: [id])
-  parentId String?
-  parent   ChurchUnit? @relation("UnitHierarchy", fields: [parentId], references: [id])
-  children ChurchUnit[] @relation("UnitHierarchy")
-  createdAt DateTime   @default(now())
+  id        String       @id @default(uuid())
+  name      String
+  type      UnitType
+  areaId    String?
+  area      ChurchArea?  @relation(fields: [areaId], references: [id])
+  parentId  String?
+  parent    ChurchUnit?  @relation("UnitHierarchy", fields: [parentId], references: [id])
+  children  ChurchUnit[] @relation("UnitHierarchy")
+  createdAt DateTime     @default(now())
 
-  users    User[]
-  ysaPool  YsaStakePool?
+  users   User[]
+  ysaPool YsaStakePool?
 }
 
 model User {
@@ -138,11 +137,11 @@ model User {
   approvedBy               User?         @relation("LeaderApproval", fields: [approvedById], references: [id])
   approvedUsers            User[]        @relation("LeaderApproval")
 
-  ysaPoolMemberships       YsaPoolMember[]
-  sentMessages             Message[]     @relation("MessageSender")
-  conversations            ConversationParticipant[]
-  calls                    CallParticipant[]
-  pinnedChats              PinnedChat[]
+  ysaPoolMemberships YsaPoolMember[]
+  sentMessages       Message[]                 @relation("MessageSender")
+  conversations      ConversationParticipant[]
+  calls              CallParticipant[]
+  pinnedChats        PinnedChat[]
 
   @@index([phone])
   @@index([role])
@@ -158,7 +157,7 @@ model YsaStakePool {
   isOpen    Boolean    @default(false)
   createdAt DateTime   @default(now())
 
-  members   YsaPoolMember[]
+  members YsaPoolMember[]
 }
 
 model YsaPoolMember {
@@ -187,9 +186,9 @@ model Conversation {
   missionScoped Boolean   @default(false)
   missionId     String?
 
-  participants  ConversationParticipant[]
-  messages      Message[]
-  pinnedBy      PinnedChat[]
+  participants ConversationParticipant[]
+  messages     Message[]
+  pinnedBy     PinnedChat[]
 }
 
 model ConversationParticipant {
@@ -225,39 +224,39 @@ model Message {
   deliveredAt    DateTime?
   createdAt      DateTime     @default(now())
 
-  receipts       MessageReceipt[]
+  receipts MessageReceipt[]
 }
 
 model MessageReceipt {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   messageId   String
-  message     Message  @relation(fields: [messageId], references: [id])
+  message     Message   @relation(fields: [messageId], references: [id])
   userId      String
-  deliveredAt DateTime @default(now())
+  deliveredAt DateTime  @default(now())
   readAt      DateTime?
 
   @@unique([messageId, userId])
 }
 
 model Call {
-  id             String          @id @default(uuid())
+  id             String     @id @default(uuid())
   conversationId String?
   type           CallType
-  status         CallStatus      @default(RINGING)
-  startedAt      DateTime        @default(now())
+  status         CallStatus @default(RINGING)
+  startedAt      DateTime   @default(now())
   endedAt        DateTime?
   duration       Int?
 
-  participants   CallParticipant[]
+  participants CallParticipant[]
 }
 
 model CallParticipant {
-  id       String   @id @default(uuid())
+  id       String    @id @default(uuid())
   callId   String
-  call     Call     @relation(fields: [callId], references: [id])
+  call     Call      @relation(fields: [callId], references: [id])
   userId   String
-  user     User     @relation(fields: [userId], references: [id])
-  joinedAt DateTime @default(now())
+  user     User      @relation(fields: [userId], references: [id])
+  joinedAt DateTime  @default(now())
   leftAt   DateTime?
 
   @@unique([callId, userId])

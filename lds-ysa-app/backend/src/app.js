@@ -16,7 +16,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type','Authorization'],
   credentials: true,
 }));
-app.options('*', cors());
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

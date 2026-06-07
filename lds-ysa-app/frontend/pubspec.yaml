@@ -19,7 +19,10 @@ dependencies:
   image_picker: ^1.0.7
   # Pinned to 10.x: 11.0.2's Gradle script assumes AGP 9 implies built-in
   # Kotlin, which the Flutter template disables, so its Kotlin never compiles.
-  # Bump to 11+ once flutter_file_picker handles android.builtInKotlin=false.
+  # The fix never landed in 11.x. The 12.0.0 betas handle
+  # android.builtInKotlin=false (beta.3) and drop KGP entirely (beta.4),
+  # but carry breaking API changes (saveFile signature, allowMultiple
+  # default). Bump to 12.x once it goes stable.
   file_picker: ^10.3.10
   url_launcher: ^6.2.5
   flutter_webrtc: ^1.4.1

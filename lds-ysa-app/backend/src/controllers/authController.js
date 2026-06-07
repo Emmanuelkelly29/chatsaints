@@ -489,6 +489,13 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { phone_number, email, password } = req.body;
+    // TEMP DEBUG: remove after login issue is diagnosed
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[login debug] phone:', JSON.stringify(phone_number ?? null),
+        'email:', JSON.stringify(email ?? null),
+        'passLen:', password ? password.length : 0,
+        'variants:', phone_number ? phoneVariants(phone_number.trim()) : null);
+    }
     if ((!phone_number && !email) || !password)
       return res.status(400).json({ error: 'phone_number or email, and password are required' });
 
@@ -506,12 +513,18 @@ const login = async (req, res) => {
          FROM users WHERE phone_number = ANY($1)`, [variants]);
     }
 
-    if (!result.rows.length) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!result.rows.length) {
+      if (process.env.NODE_ENV !== 'production') console.log('[login debug] 401: no user matched');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
     const user = result.rows[0];
     if (user.status === 'suspended') return res.status(403).json({ error: 'Account suspended' });
 
     const valid = await bcrypt.compare(password, user.password_hash || '');
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!valid) {
+      if (process.env.NODE_ENV !== 'production') console.log('[login debug] 401: password mismatch for', user.phone_number);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     await query('UPDATE users SET last_seen=NOW() WHERE id=$1', [user.id]);
     const { password_hash, ...safeUser } = user;

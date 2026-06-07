@@ -24,21 +24,21 @@ ON CONFLICT DO NOTHING;
 
 -- STAKES
 INSERT INTO stakes (id, name, country, coordinating_council_id, ysa_pool_active) VALUES
-  ('s1000000-0000-0000-0000-000000000001', 'Abeokuta Nigeria Ibara Stake',
+  ('b1000000-0000-0000-0000-000000000001', 'Abeokuta Nigeria Ibara Stake',
    'Nigeria', 'c1000000-0000-0000-0000-000000000001', TRUE),
-  ('s1000000-0000-0000-0000-000000000002', 'Lagos Nigeria Ikeja Stake',
+  ('b1000000-0000-0000-0000-000000000002', 'Lagos Nigeria Ikeja Stake',
    'Nigeria', 'c1000000-0000-0000-0000-000000000001', TRUE),
-  ('s1000000-0000-0000-0000-000000000003', 'Accra Ghana Stake',
+  ('b1000000-0000-0000-0000-000000000003', 'Accra Ghana Stake',
    'Ghana', 'c1000000-0000-0000-0000-000000000002', FALSE)
 ON CONFLICT DO NOTHING;
 
 -- MISSIONS
 INSERT INTO missions (id, name, area_id, country) VALUES
-  ('m1000000-0000-0000-0000-000000000001', 'Nigeria Lagos Mission',
+  ('d1000000-0000-0000-0000-000000000001', 'Nigeria Lagos Mission',
    'a1000000-0000-0000-0000-000000000001', 'Nigeria'),
-  ('m1000000-0000-0000-0000-000000000002', 'Nigeria Enugu Mission',
+  ('d1000000-0000-0000-0000-000000000002', 'Nigeria Enugu Mission',
    'a1000000-0000-0000-0000-000000000001', 'Nigeria'),
-  ('m1000000-0000-0000-0000-000000000003', 'Ghana Accra Mission',
+  ('d1000000-0000-0000-0000-000000000003', 'Ghana Accra Mission',
    'a1000000-0000-0000-0000-000000000001', 'Ghana')
 ON CONFLICT DO NOTHING;
 

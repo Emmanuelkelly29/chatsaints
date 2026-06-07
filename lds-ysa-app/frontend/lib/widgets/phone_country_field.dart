@@ -152,15 +152,19 @@ class _PhoneCountryFieldState extends State<PhoneCountryField> {
     final code = _codeCtrl.text.trim();
     final sorted = [...kCountries]
       ..sort((a, b) => b[0].length.compareTo(a[0].length));
+    var matched = false;
     for (final c in sorted) {
       if (c[0] == code || (code.startsWith(c[0]) && code.length <= c[0].length + 2)) {
         if (c[1] != _flag) setState(() => _flag = c[1]);
-        return;
+        matched = true;
+        break;
       }
     }
-    if (code.isEmpty || code == '+') {
+    if (!matched && (code.isEmpty || code == '+')) {
       if (_flag != '🌐') setState(() => _flag = '🌐');
     }
+    // Always propagate, even when the code matches a country. The old early
+    // return left the parent holding a stale full number (e.g. "+" + local).
     _notifyChanged();
   }
 

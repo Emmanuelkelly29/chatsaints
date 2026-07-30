@@ -1,30 +1,61 @@
-name: CI — Test & Build
+name: CI
+
+# The previous pipeline could not fail. Lint ended in "|| true", Flutter tests
+# ended the same way, it applied only 4 of 10 migrations, and it referenced
+# backend/ and frontend/ paths that no longer exist. It had also never run at
+# all, because the workflow files lived in "workflows/" rather than
+# ".github/workflows/". Nothing here is allowed to swallow a failure.
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, cleanup]
   pull_request:
     branches: [main]
 
+# Least privilege. The previous workflows declared no permissions block and so
+# inherited the default token scope.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # ── Backend Tests ──────────────────────────────────────────────
-  backend-test:
-    name: Backend — Jest tests
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Scans the working tree, not full git history. History still contains a
+      # leaked Postgres password in commits on main, so a history-wide scan
+      # would fail on every run until that is dealt with separately. This
+      # catches anything NEW being introduced.
+      - name: Run gitleaks against the working tree
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks detect --source . --no-git --redact --verbose
+
+  api:
+    name: API
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
-          POSTGRES_DB:       lds_ysa_test
-          POSTGRES_USER:     lds_admin
-          POSTGRES_PASSWORD: test_password_ci
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: chatsaints_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U ci -d chatsaints_test"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
 
       redis:
         image: redis:7-alpine
@@ -33,115 +64,74 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/chatsaints_test
+      REDIS_URL: redis://localhost:6379
+      # Throwaway CI value, long enough to satisfy the boot-time check.
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else-0123456789abcdef
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          bun-version: "1.3.9"
 
       - name: Install dependencies
-        working-directory: backend
-        run: npm ci
+        run: bun install --frozen-lockfile
 
-      - name: Run database migrations (test DB)
-        working-directory: backend
-        env:
-          PGPASSWORD: test_password_ci
-        run: |
-          psql -h localhost -U lds_admin -d lds_ysa_test \
-            -f ../database/migrations/001_schema.sql
-          psql -h localhost -U lds_admin -d lds_ysa_test \
-            -f ../database/migrations/002_status.sql
-          psql -h localhost -U lds_admin -d lds_ysa_test \
-            -f ../database/migrations/003_reactions_and_groups.sql
-          psql -h localhost -U lds_admin -d lds_ysa_test \
-            -f ../database/migrations/004_e2ee.sql
+      # Migrations are the only way the schema changes. Applying them here also
+      # verifies they still apply cleanly to an empty database.
+      - name: Apply migrations
+        working-directory: apps/api
+        run: bunx prisma migrate deploy
 
-      - name: Run tests
-        working-directory: backend
-        env:
-          NODE_ENV:     test
-          JWT_SECRET:   ci-test-secret-key-min-64-chars-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-          DB_HOST:      localhost
-          DB_PORT:      5432
-          DB_NAME:      lds_ysa_test
-          DB_USER:      lds_admin
-          DB_PASSWORD:  test_password_ci
-          REDIS_HOST:   localhost
-          REDIS_PORT:   6379
-        run: npm test -- --coverage --forceExit
+      # Prisma 7 no longer chains generate onto migrate, so it is explicit.
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: bunx prisma generate
 
-      - name: Upload coverage report
-        uses: codecov/codecov-action@v4
-        if: always()
-        with:
-          directory: backend/coverage
-          flags: backend
+      - name: Typecheck
+        working-directory: apps/api
+        run: bun run typecheck
 
-  # ── Backend Lint ───────────────────────────────────────────────
-  backend-lint:
-    name: Backend — ESLint
+      - name: Lint
+        working-directory: apps/api
+        run: bun run lint
+
+      - name: Test
+        working-directory: apps/api
+        run: bun test
+
+      - name: Verify the seed applies cleanly
+        working-directory: apps/api
+        run: bun run db:seed
+
+  mobile:
+    name: Mobile
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-      - run: npm ci
-        working-directory: backend
-      - name: Run ESLint
-        working-directory: backend
-        run: npx eslint src/ --ext .js --max-warnings 0 || true
 
-  # ── Flutter Analysis ───────────────────────────────────────────
-  flutter-analyze:
-    name: Flutter — Dart analyze
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
-          channel: 'stable'
+          flutter-version: "3.44.0"
+          channel: stable
           cache: true
 
-      - name: Install Flutter dependencies
-        working-directory: frontend
+      - name: Install packages
+        working-directory: apps/mobile
         run: flutter pub get
 
-      - name: Analyze Dart code
-        working-directory: frontend
-        run: flutter analyze --no-fatal-infos
+      # Analyze and test only. Building iOS or Android artifacts belongs in a
+      # release workflow, not on every push.
+      - name: Analyze
+        working-directory: apps/mobile
+        run: flutter analyze
 
-      - name: Run Flutter tests
-        working-directory: frontend
-        run: flutter test || true
-
-  # ── Docker Build Check ─────────────────────────────────────────
-  docker-build:
-    name: Docker — build image
-    runs-on: ubuntu-latest
-    needs: [backend-test]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image (no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          push: false
-          tags: lds-ysa-backend:${{ github.sha }}
-          cache-from: type=gha
-          cache-to:   type=gha,mode=max
+      - name: Test
+        working-directory: apps/mobile
+        run: flutter test

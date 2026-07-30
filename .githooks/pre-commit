@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+#
+# Blocks the two mistakes that produced most of this repository's problems:
+# committing a credential, and committing a generated or environment file.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# Bypass in a genuine emergency with `git commit --no-verify`, then explain
+# yourself in the commit message.
+
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+fail=0
+
+# ── 1. Files that must never be committed ──────────────────────────────────
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+  case "$file" in
+    *.env|*.env.local|*.env.production|*.env.staging)
+      echo "BLOCKED: $file is an environment file. Only .env.example belongs in git."
+      fail=1
+      ;;
+    *.pem|*.key|*.p8|*.p12|*.pfx|*.jks|*.keystore|*key.properties)
+      echo "BLOCKED: $file looks like a private key or signing material."
+      fail=1
+      ;;
+    *google-services.json|*GoogleService-Info.plist|*-service-account.json|*-credentials.json)
+      echo "BLOCKED: $file is a service credential file."
+      fail=1
+      ;;
+    */generated/prisma/*)
+      echo "BLOCKED: $file is generated. Run 'bun run db:generate' instead of committing it."
+      fail=1
+      ;;
+  esac
+done <<< "$staged"
+
+# ── 2. Credential-shaped content in the staged diff ────────────────────────
+# Matches an assignment of a plausible secret to a hardcoded literal. Narrow on
+# purpose: it must catch a real password without flagging every string.
+patterns=(
+  '(password|passwd|secret|api[_-]?key|access[_-]?token|private[_-]?key)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"'{}$][^"'"'"']{5,}'
+  'postgres(ql)?://[^:/@[:space:]]+:[^@[:space:]]+@'
+  'mysql://[^:/@[:space:]]+:[^@[:space:]]+@'
+  'redis://[^:/@[:space:]]*:[^@[:space:]]+@'
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+  'AKIA[0-9A-Z]{16}'
+  'ghp_[0-9A-Za-z]{36}'
+)
+
+# Obvious non-secrets: documented placeholders and RFC 2606 reserved domains.
+# Deliberately NOT a bare "example": that matched any hostname containing the
+# word and silently disabled detection for the whole line.
+PLACEHOLDER='CHANGE_ME|REPLACE_ME|placeholder|your[-_]|<[a-z_]+>|\$\{|USER:PASSWORD|user:pass([[:space:]@]|$)|\bdummy\b|\bfake\b|xxxxx|example\.(com|org|net)'
+
+# Credentials pointing at a loopback address or a container service name are
+# local or CI scaffolding, not production secrets. A real one points at a
+# routable host. Anything genuinely sensitive belongs in .env, which rule 1
+# already refuses outright.
+LOCAL_HOST='@(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal)([:/]|$)|@(postgres|postgresql|redis|mysql|mariadb|db|database|cache)([:/])'
+
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+
+  # This script necessarily contains the very patterns it searches for, so
+  # scanning it always matched itself. Same for documented sample values.
+  case "$file" in
+    .githooks/*|*.example|*.md) continue ;;
+  esac
+
+  added=$(git diff --cached -U0 -- "$file" | grep '^+' | grep -v '^+++' || true)
+  [ -z "$added" ] && continue
+
+  for pattern in "${patterns[@]}"; do
+    # -e is required: some patterns begin with '-' and would otherwise be
+    # parsed as grep options.
+    # -i matters: identifiers are usually camelCase (apiKey, accessToken).
+    hits=$(printf '%s\n' "$added" \
+      | grep -inE -e "$pattern" \
+      | grep -viE -e "$PLACEHOLDER" \
+      | grep -viE -e "$LOCAL_HOST" || true)
+
+    if [ -n "$hits" ]; then
+      echo "BLOCKED: $file has a staged line that looks like a hardcoded credential:"
+      printf '%s\n' "$hits" | cut -c1-160 | sed 's/^/    /'
+      fail=1
+    fi
+  done
+done <<< "$staged"
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  echo "Commit rejected. Move the value into apps/api/.env (gitignored) and"
+  echo "read it through src/config/env.ts."
+  echo "If this is a false positive, widen the allowlist in .githooks/pre-commit"
+  echo "rather than bypassing the hook."
+  exit 1
+fi
+
+exit 0

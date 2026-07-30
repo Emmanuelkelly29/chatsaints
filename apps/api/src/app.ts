@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 
 import { corsOrigins, isTest } from "./config/env";
+import { authRouter } from "./features/auth/routes";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 
 /**
@@ -59,7 +60,9 @@ export function createApp(): Express {
     res.json({ status: "ok", app: "ChatSaints", time: new Date().toISOString() });
   });
 
-  // Feature routers mount here as they are ported.
+  app.use("/api/auth", authRouter);
+
+  // Remaining feature routers mount here as they are ported.
   //
   // Note there is deliberately no `express.static("/uploads")` mount. The old
   // app served every uploaded file from an unauthenticated static path, above

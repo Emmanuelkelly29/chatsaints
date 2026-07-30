@@ -241,7 +241,138 @@ async function seedScriptures(): Promise<void> {
   console.log(`scriptures: ${created} upserted`);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Church geography
+//
+// Carried over from the old database/seeds/001_seed.sql. Ids are fixed rather
+// than generated so re-running the seed updates the same rows instead of
+// creating duplicates, and so other fixtures can reference them.
+//
+// Deliberately NOT carried over: the 20 demo user accounts from
+// 002_global_demo_users.sql. They shared one password that was published in the
+// docs, were created active, pre-approved and directory-visible, and the seed
+// reset that password on every run. They have no place in a seed that might one
+// day touch a real database.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AREAS = [
+  { id: "a1000000-0000-0000-0000-000000000001", name: "Africa West Area", continent: "Africa" },
+  { id: "a1000000-0000-0000-0000-000000000002", name: "Africa Central and South Area", continent: "Africa" },
+  { id: "a1000000-0000-0000-0000-000000000003", name: "Africa Southeast Area", continent: "Africa" },
+  { id: "a1000000-0000-0000-0000-000000000004", name: "North America West Area", continent: "North America" },
+  { id: "a1000000-0000-0000-0000-000000000005", name: "Europe Area", continent: "Europe" },
+  { id: "a1000000-0000-0000-0000-000000000006", name: "Asia Area", continent: "Asia" },
+  { id: "a1000000-0000-0000-0000-000000000007", name: "Pacific Area", continent: "Oceania" },
+  { id: "a1000000-0000-0000-0000-000000000008", name: "South America North Area", continent: "South America" },
+] as const;
+
+const COORDINATING_COUNCILS = [
+  {
+    id: "c1000000-0000-0000-0000-000000000001",
+    name: "Nigeria Coordinating Council",
+    areaId: "a1000000-0000-0000-0000-000000000001",
+  },
+  {
+    id: "c1000000-0000-0000-0000-000000000002",
+    name: "Ghana Coordinating Council",
+    areaId: "a1000000-0000-0000-0000-000000000001",
+  },
+] as const;
+
+const STAKES = [
+  {
+    id: "b1000000-0000-0000-0000-000000000001",
+    name: "Abeokuta Nigeria Ibara Stake",
+    country: "Nigeria",
+    continent: "Africa",
+    coordinatingCouncilId: "c1000000-0000-0000-0000-000000000001",
+    ysaPoolActive: true,
+  },
+  {
+    id: "b1000000-0000-0000-0000-000000000002",
+    name: "Lagos Nigeria Ikeja Stake",
+    country: "Nigeria",
+    continent: "Africa",
+    coordinatingCouncilId: "c1000000-0000-0000-0000-000000000001",
+    ysaPoolActive: true,
+  },
+  {
+    id: "b1000000-0000-0000-0000-000000000003",
+    name: "Accra Ghana Stake",
+    country: "Ghana",
+    continent: "Africa",
+    coordinatingCouncilId: "c1000000-0000-0000-0000-000000000002",
+    ysaPoolActive: false,
+  },
+] as const;
+
+const MISSIONS = [
+  {
+    id: "d1000000-0000-0000-0000-000000000001",
+    name: "Nigeria Lagos Mission",
+    country: "Nigeria",
+    areaId: "a1000000-0000-0000-0000-000000000001",
+  },
+  {
+    id: "d1000000-0000-0000-0000-000000000002",
+    name: "Nigeria Enugu Mission",
+    country: "Nigeria",
+    areaId: "a1000000-0000-0000-0000-000000000001",
+  },
+  {
+    id: "d1000000-0000-0000-0000-000000000003",
+    name: "Ghana Accra Mission",
+    country: "Ghana",
+    areaId: "a1000000-0000-0000-0000-000000000001",
+  },
+] as const;
+
+async function seedGeography(): Promise<void> {
+  for (const area of AREAS) {
+    await prisma.area.upsert({
+      where: { id: area.id },
+      update: { name: area.name, continent: area.continent },
+      create: { ...area },
+    });
+  }
+
+  for (const council of COORDINATING_COUNCILS) {
+    await prisma.coordinatingCouncil.upsert({
+      where: { id: council.id },
+      update: { name: council.name, areaId: council.areaId },
+      create: { ...council },
+    });
+  }
+
+  for (const stake of STAKES) {
+    await prisma.stake.upsert({
+      where: { id: stake.id },
+      update: {
+        name: stake.name,
+        country: stake.country,
+        continent: stake.continent,
+        coordinatingCouncilId: stake.coordinatingCouncilId,
+      },
+      create: { ...stake },
+    });
+  }
+
+  for (const mission of MISSIONS) {
+    await prisma.mission.upsert({
+      where: { id: mission.id },
+      update: { name: mission.name, country: mission.country, areaId: mission.areaId },
+      create: { ...mission },
+    });
+  }
+
+  console.log(
+    `geography: ${AREAS.length} areas, ${COORDINATING_COUNCILS.length} councils, ` +
+      `${STAKES.length} stakes, ${MISSIONS.length} missions upserted`,
+  );
+}
+
 async function main(): Promise<void> {
+  await seedGeography();
   await seedScriptures();
 }
 

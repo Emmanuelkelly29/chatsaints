@@ -1,7 +1,6 @@
 import bcrypt from "bcryptjs";
 
 import { requiresLeaderApproval } from "../../domain/roles";
-import type { LeadershipRole } from "../../generated/prisma/enums";
 import { describeError, logger } from "../../lib/logger";
 import { normalizeText, phoneVariants } from "../../lib/normalize";
 import { prisma } from "../../lib/prisma";
@@ -157,7 +156,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     resolveDistrictId(input.district_id, input.district_name, input.district_country),
   ]);
 
-  const role = input.role as LeadershipRole;
+  const role = input.role;
   const needsApproval = requiresLeaderApproval(role);
 
   const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);

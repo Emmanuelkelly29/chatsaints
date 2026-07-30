@@ -7,8 +7,13 @@ import { env } from "./config/env";
 import { disconnectRedis, getRedis } from "./config/redis";
 import { describeError, logger } from "./lib/logger";
 import { assertDatabaseReachable, disconnectPrisma } from "./lib/prisma";
+import { closeWebSocketServer, initWebSocketServer } from "./ws/server";
 
 const server = createServer(createApp());
+
+// Chat, calls and meetings all run over this. It shares the HTTP server so
+// there is one port and one TLS termination point.
+initWebSocketServer(server);
 
 async function start(): Promise<void> {
   try {
@@ -40,6 +45,10 @@ async function shutdown(signal: string): Promise<void> {
 
   // Stop accepting connections, then release resources. Without awaiting the
   // close, in-flight requests are cut off mid-response.
+  // Close WebSocket clients first so they get a clean close frame rather than
+  // a dropped connection when the HTTP server goes away.
+  await closeWebSocketServer();
+
   await new Promise<void>((resolve) => {
     server.close(() => {
       resolve();

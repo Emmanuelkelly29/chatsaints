@@ -4,7 +4,28 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 
 import { corsOrigins, isTest } from "./config/env";
+import { adminRouter } from "./features/admin/routes";
+import { announcementsRouter } from "./features/announcements/routes";
 import { authRouter } from "./features/auth/routes";
+import { callsRouter } from "./features/calls/routes";
+import { contactRequestsRouter } from "./features/contact-requests/routes";
+import { conversationsRouter } from "./features/conversations/routes";
+import { e2eeRouter } from "./features/e2ee/routes";
+import { geographyRouter } from "./features/geography/routes";
+import { groupsRouter } from "./features/groups/routes";
+import { leadersRouter } from "./features/leaders/routes";
+import { mediaRouter } from "./features/media/routes";
+import { meetingsRouter } from "./features/meetings/routes";
+import { messagesRouter } from "./features/messages/routes";
+import { missionaryRouter } from "./features/missionary/routes";
+import { notificationsRouter } from "./features/notifications/routes";
+import { poolRouter } from "./features/pool/routes";
+import { reactionsRouter } from "./features/reactions/routes";
+import { scripturesRouter } from "./features/scriptures/routes";
+import { settingsRouter } from "./features/settings/routes";
+import { statusesRouter } from "./features/statuses/routes";
+import { usersRouter } from "./features/users/routes";
+import { videoRouter } from "./features/video/routes";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 
 /**
@@ -60,15 +81,46 @@ export function createApp(): Express {
     res.json({ status: "ok", app: "ChatSaints", time: new Date().toISOString() });
   });
 
+  // ── Feature routers ────────────────────────────────────────────────────
   app.use("/api/auth", authRouter);
+  app.use("/api/users", usersRouter);
+  app.use("/api/settings", settingsRouter);
 
-  // Remaining feature routers mount here as they are ported.
-  //
-  // Note there is deliberately no `express.static("/uploads")` mount. The old
-  // app served every uploaded file from an unauthenticated static path, above
-  // all routers, so any voice note or photo was fetchable by URL with no token
-  // and no conversation membership. Media will be served by an authenticated
-  // route that verifies the caller can see the owning message or status.
+  app.use("/api/conversations", conversationsRouter);
+  // Registered before /api/messages so the nested reactions path is matched
+  // by its own router rather than falling through.
+  app.use("/api/messages/:id/reactions", reactionsRouter);
+  app.use("/api/messages", messagesRouter);
+  app.use("/api/groups", groupsRouter);
+
+  app.use("/api/statuses", statusesRouter);
+  app.use("/api/announcements", announcementsRouter);
+  app.use("/api/notifications", notificationsRouter);
+
+  app.use("/api/contact-requests", contactRequestsRouter);
+  app.use("/api/ysa-pool", poolRouter);
+
+  app.use("/api/geography", geographyRouter);
+  app.use("/api/leaders", leadersRouter);
+  app.use("/api/admin", adminRouter);
+  app.use("/api/missionary", missionaryRouter);
+
+  app.use("/api/calls", callsRouter);
+  app.use("/api/video", videoRouter);
+  app.use("/api/meetings", meetingsRouter);
+
+  // Media is served by an authenticated route that checks the caller may see
+  // the owning message or status. There is deliberately no
+  // `express.static("/uploads")` mount: the old app served every uploaded file
+  // from an unauthenticated static path, above all routers, so any voice note
+  // or photo was fetchable by URL with no token and no conversation membership.
+  app.use("/api/media", mediaRouter);
+
+  // Public-key directory. Note this stores public keys only; nothing in the
+  // application encrypts message bodies.
+  app.use("/api/e2ee", e2eeRouter);
+
+  app.use("/api/scriptures", scripturesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

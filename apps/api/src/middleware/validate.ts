@@ -31,7 +31,7 @@ export function withBody<S extends ZodType>(schema: S, handler: Handler<z.infer<
       next(badRequest(formatIssues(parsed.error)));
       return;
     }
-    void Promise.resolve(handler(parsed.data as z.infer<S>, req, res)).catch(next);
+    void Promise.resolve(handler(parsed.data, req, res)).catch(next);
   };
 }
 
@@ -43,7 +43,7 @@ export function withQuery<S extends ZodType>(schema: S, handler: Handler<z.infer
       next(badRequest(formatIssues(parsed.error)));
       return;
     }
-    void Promise.resolve(handler(parsed.data as z.infer<S>, req, res)).catch(next);
+    void Promise.resolve(handler(parsed.data, req, res)).catch(next);
   };
 }
 
@@ -55,7 +55,7 @@ export function withParams<S extends ZodType>(schema: S, handler: Handler<z.infe
       next(badRequest(formatIssues(parsed.error)));
       return;
     }
-    void Promise.resolve(handler(parsed.data as z.infer<S>, req, res)).catch(next);
+    void Promise.resolve(handler(parsed.data, req, res)).catch(next);
   };
 }
 

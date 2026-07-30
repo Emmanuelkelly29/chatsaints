@@ -1,0 +1,83 @@
+name: chatsaints
+description: "ChatSaints: Church Chat & Community App"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+  flutter: '>=3.44.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.9
+  http: ^1.6.0
+  web_socket_channel: ^3.0.3
+  provider: ^6.1.5
+  flutter_secure_storage: ^10.3.1
+  shared_preferences: ^2.5.5
+  cached_network_image: ^3.4.1
+  image_picker: ^1.2.3
+  # Pinned to 10.x: 11.0.2's Gradle script assumes AGP 9 implies built-in
+  # Kotlin, which the Flutter template disables, so its Kotlin never compiles.
+  # The fix never landed in 11.x. The 12.0.0 betas handle
+  # android.builtInKotlin=false (beta.3) and drop KGP entirely (beta.4),
+  # but carry breaking API changes (saveFile signature, allowMultiple
+  # default). Bump to 12.x once it goes stable.
+  file_picker: ^10.3.10
+  url_launcher: ^6.3.2
+  flutter_webrtc: ^1.5.2
+  just_audio: ^0.10.6
+  video_player: ^2.13.0
+  firebase_core: ^4.12.1
+  firebase_messaging: ^16.4.3
+  flutter_local_notifications: ^22.2.0
+  intl: ^0.20.3
+  timeago: ^3.7.1
+  uuid: ^4.6.0
+  record: ^7.1.1
+  cross_file: ^0.3.5
+  permission_handler: ^12.0.3
+  connectivity_plus: ^7.3.1
+  path_provider: ^2.1.6
+  # Only used by lib/services/e2ee/e2ee_service.dart, which has no callers.
+  # Remove both once the encryption decision is settled either way.
+  cryptography: ^2.9.0
+  pointycastle: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  # Icon & splash generation
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.8
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
+
+# App icon configuration
+flutter_launcher_icons:
+  android: false
+  ios: false
+  image_path: "assets/icons/app_icon.png"
+  adaptive_icon_background: "#1A5276"
+  adaptive_icon_foreground: "assets/icons/app_icon.png"
+  web:
+    generate: true
+    image_path: "assets/icons/app_icon.png"
+    background_color: "#1A5276"
+    theme_color: "#1A5276"
+
+# Splash screen configuration
+flutter_native_splash:
+  color: "#1A5276"
+  image: assets/images/splash.png
+  android_12:
+    image: assets/images/splash.png
+    icon_background_color: "#1A5276"
+  ios: true
+  android: true

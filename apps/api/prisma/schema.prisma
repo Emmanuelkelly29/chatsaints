@@ -1,0 +1,928 @@
+// ChatSaints data model.
+//
+// This file is the single source of truth for the database. Never hand-write
+// SQL and never edit a file under prisma/migrations/. To change the schema:
+//
+//   1. edit this file
+//   2. run `bun run db:migrate`
+//
+// Prisma diffs this schema against a shadow database and writes the migration
+// SQL for you.
+//
+// Connection settings live in prisma.config.ts, not here. That moved in
+// Prisma 7.
+//
+// Conventions: models are PascalCase and singular, mapped to snake_case plural
+// tables. Fields are camelCase, mapped to snake_case columns.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  active
+  missionary
+  pending_approval
+  suspended
+  released_missionary
+
+  @@map("user_status")
+}
+
+enum LeadershipRole {
+  ysa_member
+  ysa_rep
+  ysa_adviser
+  ysa_couple_adviser
+  bishop
+  district_presidency
+  stake_presidency
+  coordinating_council
+  area_authority
+  area_presidency
+  general_authority
+  apostle
+  first_presidency
+  mission_president
+  mission_president_wife
+  missionary
+  it_support
+
+  @@map("leadership_role")
+}
+
+enum MessageType {
+  text
+  image
+  video
+  audio
+  file
+  document
+  voice_note
+
+  @@map("message_type")
+}
+
+enum CallType {
+  voice
+  video
+
+  @@map("call_type")
+}
+
+enum CallStatus {
+  initiated
+  answered
+  declined
+  missed
+  ended
+
+  @@map("call_status")
+}
+
+enum StatusVisibility {
+  everyone
+  contacts_only
+  selected
+  except
+
+  @@map("status_visibility")
+}
+
+// Previously a VARCHAR(10) whose comment said "image or video" while the code
+// accepted four values. Now enforced.
+enum StatusMediaType {
+  image
+  video
+  voice
+  text
+
+  @@map("status_media_type")
+}
+
+enum MeetingStatus {
+  waiting
+  active
+  ended
+
+  @@map("meeting_status")
+}
+
+enum MeetingRole {
+  host
+  co_host
+  presenter
+  attendee
+
+  @@map("meeting_role")
+}
+
+enum JoinRequestStatus {
+  pending
+  approved
+  rejected
+
+  @@map("join_req_status")
+}
+
+enum ContactRequestPreference {
+  approved_pool
+  same_stake
+  nobody
+
+  @@map("contact_request_preference")
+}
+
+enum ContactRequestStatus {
+  pending
+  accepted
+  declined
+  cancelled
+
+  @@map("contact_request_status")
+}
+
+// Previously an unconstrained VARCHAR(20) holding the same three values.
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+
+  @@map("approval_status")
+}
+
+// Previously an unconstrained VARCHAR(40).
+enum AnnouncementScope {
+  global
+  area
+  mission
+  stake
+  district
+
+  @@map("announcement_scope")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Church geography
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Area {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(120)
+  continent String?  @db.VarChar(80)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  coordinatingCouncils CoordinatingCouncil[]
+  missions             Mission[]
+
+  @@map("areas")
+}
+
+model CoordinatingCouncil {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(120)
+  areaId    String?  @map("area_id") @db.Uuid
+  area      Area?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  stakes    Stake[]
+  districts District[]
+
+  @@index([areaId])
+  @@map("coordinating_councils")
+}
+
+model Stake {
+  id                    String               @id @default(uuid()) @db.Uuid
+  name                  String               @db.VarChar(120)
+  country               String?              @db.VarChar(80)
+  continent             String?              @db.VarChar(100)
+  coordinatingCouncilId String?              @map("coordinating_council_id") @db.Uuid
+  coordinatingCouncil   CoordinatingCouncil? @relation(fields: [coordinatingCouncilId], references: [id], onDelete: SetNull)
+  ysaPoolActive         Boolean              @default(false) @map("ysa_pool_active")
+  createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  users       User[]
+  wards       Ward[]
+  branches    Branch[]
+  poolMembers StakePoolMember[]
+
+  @@index([coordinatingCouncilId])
+  @@map("stakes")
+}
+
+model District {
+  id                    String               @id @default(uuid()) @db.Uuid
+  name                  String               @db.VarChar(120)
+  country               String?              @db.VarChar(80)
+  continent             String?              @db.VarChar(100)
+  coordinatingCouncilId String?              @map("coordinating_council_id") @db.Uuid
+  coordinatingCouncil   CoordinatingCouncil? @relation(fields: [coordinatingCouncilId], references: [id], onDelete: SetNull)
+  ysaPoolActive         Boolean              @default(false) @map("ysa_pool_active")
+  createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  users       User[]
+  branches    Branch[]
+  poolMembers StakePoolMember[]
+
+  @@index([coordinatingCouncilId])
+  @@map("districts")
+}
+
+model Ward {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(120)
+  stakeId   String?  @map("stake_id") @db.Uuid
+  stake     Stake?   @relation(fields: [stakeId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  users User[]
+
+  @@index([stakeId])
+  @@map("wards")
+}
+
+model Branch {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String    @db.VarChar(120)
+  stakeId    String?   @map("stake_id") @db.Uuid
+  stake      Stake?    @relation(fields: [stakeId], references: [id], onDelete: SetNull)
+  districtId String?   @map("district_id") @db.Uuid
+  district   District? @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  users User[]
+
+  @@index([stakeId])
+  @@index([districtId])
+  @@map("branches")
+}
+
+model Mission {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(150)
+  areaId    String?  @map("area_id") @db.Uuid
+  area      Area?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  country   String?  @db.VarChar(80)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  missionaries  User[]         @relation("UserMission")
+  presidingOver User[]         @relation("MissionPresidentOf")
+  conversations Conversation[]
+
+  @@index([areaId])
+  @@map("missions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Users
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  phoneNumber  String  @unique @map("phone_number") @db.VarChar(20)
+  email        String? @unique @db.VarChar(150)
+  fullName     String  @map("full_name") @db.VarChar(120)
+  dateOfBirth  DateTime? @map("date_of_birth") @db.Date
+  gender       String? @db.VarChar(10)
+  isSingle     Boolean @default(true) @map("is_single")
+  profilePhotoUrl String? @map("profile_photo_url")
+  bio          String?
+
+  // Credentials. password_hash previously existed only because someone ran an
+  // ALTER TABLE by hand on the dev database; no migration ever created it,
+  // even though login depends on it entirely.
+  passwordHash  String?  @map("password_hash")
+  emailVerified Boolean  @default(false) @map("email_verified")
+
+  role   LeadershipRole @default(ysa_member)
+  status UserStatus     @default(pending_approval)
+
+  isApproved   Boolean   @default(false) @map("is_approved")
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("UserApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+
+  stakeId    String?   @map("stake_id") @db.Uuid
+  stake      Stake?    @relation(fields: [stakeId], references: [id], onDelete: SetNull)
+  districtId String?   @map("district_id") @db.Uuid
+  district   District? @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  wardId     String?   @map("ward_id") @db.Uuid
+  ward       Ward?     @relation(fields: [wardId], references: [id], onDelete: SetNull)
+  branchId   String?   @map("branch_id") @db.Uuid
+  branch     Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  missionId            String?   @map("mission_id") @db.Uuid
+  mission              Mission?  @relation("UserMission", fields: [missionId], references: [id], onDelete: SetNull)
+  missionaryStartDate  DateTime? @map("missionary_start_date") @db.Date
+  // Timestamptz rather than Date: the deactivate handler writes NOW().
+  missionaryEndDate    DateTime? @map("missionary_end_date") @db.Timestamptz
+  missionaryModeActive Boolean   @default(false) @map("missionary_mode_active")
+
+  missionPresidentMissionId String?  @map("mission_president_mission_id") @db.Uuid
+  missionPresidentMission   Mission? @relation("MissionPresidentOf", fields: [missionPresidentMissionId], references: [id], onDelete: SetNull)
+
+  maas360Enrolled Boolean @default(false) @map("maas360_enrolled")
+  maas360DeviceId String? @map("maas360_device_id") @db.VarChar(200)
+
+  spouseId String? @map("spouse_id") @db.Uuid
+  spouse   User?   @relation("UserSpouse", fields: [spouseId], references: [id], onDelete: SetNull)
+
+  // Privacy preferences. These were previously read by the contact-request
+  // path but never selected, so they silently had no effect.
+  profileHidden           Boolean                  @default(false) @map("profile_hidden")
+  directoryVisible        Boolean                  @default(true) @map("directory_visible")
+  contactRequestPreference ContactRequestPreference @default(approved_pool) @map("contact_request_preference")
+  stealthStatusView       Boolean                  @default(false) @map("stealth_status_view")
+  statusVisibilityDefault StatusVisibility         @default(contacts_only) @map("status_visibility_default")
+
+  fcmToken  String?   @map("fcm_token")
+  apnsToken String?   @map("apns_token")
+  lastSeen  DateTime? @map("last_seen") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Inverse relations
+  approvedUsers          User[]                  @relation("UserApprovedBy")
+  spouseOf               User[]                  @relation("UserSpouse")
+  poolMemberships        StakePoolMember[]       @relation("PoolMember")
+  poolMembersAdded       StakePoolMember[]       @relation("PoolMemberAddedBy")
+  conversationsCreated   Conversation[]          @relation("ConversationCreatedBy")
+  conversationMemberships ConversationMember[]
+  pinnedConversations    PinnedConversation[]
+  messagesSent           Message[]               @relation("MessageSender")
+  messageReads           MessageRead[]
+  messageReactions       MessageReaction[]
+  callsInitiated         Call[]                  @relation("CallInitiatedBy")
+  callParticipations     CallParticipant[]
+  statuses               Status[]
+  statusViews            StatusView[]
+  statusVisibilityGrants StatusVisibilityUser[]
+  approvalsAsApplicant   LeaderApproval[]        @relation("ApprovalApplicant")
+  approvalsAsReviewer    LeaderApproval[]        @relation("ApprovalReviewer")
+  announcementsSent      Announcement[]          @relation("AnnouncementSender")
+  announcementsReceived  AnnouncementRecipient[]
+  meetingsHosted         Meeting[]               @relation("MeetingHost")
+  meetingParticipations  MeetingParticipant[]
+  meetingJoinRequests    MeetingJoinRequest[]
+  videoRoomsCreated      VideoRoom[]             @relation("VideoRoomCreatedBy")
+  videoRoomParticipations VideoRoomParticipant[]
+  contactRequestsSent    ContactRequest[]        @relation("ContactRequestSender")
+  contactRequestsReceived ContactRequest[]       @relation("ContactRequestRecipient")
+  connectionsAsLow       ContactConnection[]     @relation("ConnectionLow")
+  connectionsAsHigh      ContactConnection[]     @relation("ConnectionHigh")
+  notifications          Notification[]
+  e2eeIdentityKey        E2eeIdentityKey?
+  e2eeSignedPreKeys      E2eeSignedPreKey[]
+  e2eeOneTimePreKeys     E2eeOneTimePreKey[]
+  e2eeQueuedSent         E2eeQueuedMessage[]     @relation("E2eeQueueSender")
+  e2eeQueuedReceived     E2eeQueuedMessage[]     @relation("E2eeQueueRecipient")
+
+  @@index([stakeId])
+  @@index([districtId])
+  @@index([missionId])
+  @@index([status])
+  @@index([role])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// YSA pool
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Membership of a stake OR district pool. Previously a single stake_id column
+// with a foreign key to stakes, which the code also filled with district ids.
+// Reads happened to work; inserting a district id would have violated the
+// constraint, so district pools could never actually gain members.
+//
+// Exactly one of stakeId / districtId must be set. Prisma cannot express that,
+// so migration 0001 adds a CHECK constraint for it.
+model StakePoolMember {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  user       User      @relation("PoolMember", fields: [userId], references: [id], onDelete: Cascade)
+  stakeId    String?   @map("stake_id") @db.Uuid
+  stake      Stake?    @relation(fields: [stakeId], references: [id], onDelete: Cascade)
+  districtId String?   @map("district_id") @db.Uuid
+  district   District? @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  addedById  String?   @map("added_by") @db.Uuid
+  addedBy    User?     @relation("PoolMemberAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  approved   Boolean   @default(false)
+  approvedAt DateTime? @map("approved_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([userId, stakeId])
+  @@unique([userId, districtId])
+  @@index([stakeId])
+  @@index([districtId])
+  @@map("stake_pool_members")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversations and messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Conversation {
+  id                   String   @id @default(uuid()) @db.Uuid
+  name                 String?  @db.VarChar(200)
+  isGroup              Boolean  @default(false) @map("is_group")
+  description          String?
+  photoUrl             String?  @map("photo_url")
+  maxMembers           Int      @default(1000) @map("max_members")
+  onlyAdminsCanMessage Boolean  @default(false) @map("only_admins_can_message")
+  onlyAdminsCanEdit    Boolean  @default(false) @map("only_admins_can_edit")
+  createdById          String?  @map("created_by") @db.Uuid
+  createdBy            User?    @relation("ConversationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  missionId            String?  @map("mission_id") @db.Uuid
+  mission              Mission? @relation(fields: [missionId], references: [id], onDelete: SetNull)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  members         ConversationMember[]
+  messages        Message[]
+  pinnedBy        PinnedConversation[]
+  calls           Call[]
+  videoRooms      VideoRoom[]
+  contactRequests ContactRequest[]
+
+  @@index([missionId])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String       @map("user_id") @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isAdmin        Boolean      @default(false) @map("is_admin")
+  joinedAt       DateTime     @default(now()) @map("joined_at") @db.Timestamptz
+  leftAt         DateTime?    @map("left_at") @db.Timestamptz
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_members")
+}
+
+model PinnedConversation {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String       @map("conversation_id") @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  pinnedAt       DateTime     @default(now()) @map("pinned_at") @db.Timestamptz
+
+  @@unique([userId, conversationId])
+  @@map("pinned_conversations")
+}
+
+model Message {
+  id                String       @id @default(uuid()) @db.Uuid
+  conversationId    String       @map("conversation_id") @db.Uuid
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // Nullable so deleting an account can null the author without destroying
+  // everyone else's copy of the conversation.
+  senderId          String?      @map("sender_id") @db.Uuid
+  sender            User?        @relation("MessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+  type              MessageType  @default(text)
+  content           String?
+  mediaUrl          String?      @map("media_url")
+  mediaSizeBytes    BigInt?      @map("media_size_bytes")
+  mediaDurationSecs Int?         @map("media_duration_secs")
+  replyToId         String?      @map("reply_to_message_id") @db.Uuid
+  replyTo           Message?     @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  isDeleted         Boolean      @default(false) @map("is_deleted")
+  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  replies   Message[]         @relation("MessageReply")
+  reads     MessageRead[]
+  reactions MessageReaction[]
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([senderId])
+  @@map("messages")
+}
+
+model MessageRead {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @map("message_id") @db.Uuid
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now()) @map("read_at") @db.Timestamptz
+
+  @@unique([messageId, userId])
+  @@map("message_reads")
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @map("message_id") @db.Uuid
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String   @db.VarChar(10)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+  @@map("message_reactions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Calls
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The old table had a three-way naming split: the migration defined `type` and
+// `duration_secs`, while most call sites wrote `call_type` and
+// `duration_seconds`. Every WebSocket-initiated call therefore failed twice
+// over, once on the unknown column and once on the omitted NOT NULL `type`.
+// Settled here on `type` and `duration_seconds`.
+model Call {
+  id              String        @id @default(uuid()) @db.Uuid
+  conversationId  String?       @map("conversation_id") @db.Uuid
+  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  initiatedById   String?       @map("initiated_by") @db.Uuid
+  initiatedBy     User?         @relation("CallInitiatedBy", fields: [initiatedById], references: [id], onDelete: SetNull)
+  type            CallType
+  status          CallStatus    @default(initiated)
+  startedAt       DateTime?     @map("started_at") @db.Timestamptz
+  endedAt         DateTime?     @map("ended_at") @db.Timestamptz
+  durationSeconds Int?          @map("duration_seconds")
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  participants CallParticipant[]
+
+  @@index([conversationId])
+  @@map("calls")
+}
+
+model CallParticipant {
+  id       String    @id @default(uuid()) @db.Uuid
+  callId   String    @map("call_id") @db.Uuid
+  call     Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  userId   String    @map("user_id") @db.Uuid
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Previously had no default, and inserts omitted it, so it was always null.
+  joinedAt DateTime  @default(now()) @map("joined_at") @db.Timestamptz
+  leftAt   DateTime? @map("left_at") @db.Timestamptz
+
+  @@unique([callId, userId])
+  @@map("call_participants")
+}
+
+model VideoRoom {
+  id              String       @id @default(uuid()) @db.Uuid
+  conversationId  String       @map("conversation_id") @db.Uuid
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  roomName        String       @unique @map("room_name") @db.VarChar(200)
+  createdById     String?      @map("created_by") @db.Uuid
+  createdBy       User?        @relation("VideoRoomCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  isActive        Boolean      @default(true) @map("is_active")
+  maxParticipants Int          @default(50) @map("max_participants")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  endedAt         DateTime?    @map("ended_at") @db.Timestamptz
+
+  participants VideoRoomParticipant[]
+
+  @@index([conversationId])
+  @@map("video_rooms")
+}
+
+model VideoRoomParticipant {
+  id       String    @id @default(uuid()) @db.Uuid
+  roomId   String    @map("room_id") @db.Uuid
+  room     VideoRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId   String    @map("user_id") @db.Uuid
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime  @default(now()) @map("joined_at") @db.Timestamptz
+  leftAt   DateTime? @map("left_at") @db.Timestamptz
+
+  @@unique([roomId, userId])
+  @@map("video_room_participants")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Statuses
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Status {
+  id              String           @id @default(uuid()) @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaUrl        String?          @map("media_url")
+  mediaType       StatusMediaType  @default(image) @map("media_type")
+  caption         String?
+  textContent     String?          @map("text_content")
+  backgroundColor String           @default("#0A1628") @map("background_color") @db.VarChar(20)
+  durationSecs    Int              @default(5) @map("duration_secs")
+  visibility      StatusVisibility @default(contacts_only)
+  expiresAt       DateTime         @map("expires_at") @db.Timestamptz
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  views            StatusView[]
+  visibilityGrants StatusVisibilityUser[]
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("statuses")
+}
+
+model StatusVisibilityUser {
+  id       String @id @default(uuid()) @db.Uuid
+  statusId String @map("status_id") @db.Uuid
+  status   Status @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  userId   String @map("user_id") @db.Uuid
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([statusId, userId])
+  @@map("status_visibility_users")
+}
+
+model StatusView {
+  id        String   @id @default(uuid()) @db.Uuid
+  statusId  String   @map("status_id") @db.Uuid
+  status    Status   @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  viewerId  String   @map("viewer_id") @db.Uuid
+  viewer    User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+  viewedAt  DateTime @default(now()) @map("viewed_at") @db.Timestamptz
+  isStealth Boolean  @default(false) @map("is_stealth")
+
+  @@unique([statusId, viewerId])
+  @@index([statusId])
+  @@map("status_views")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Leadership approval
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LeaderApproval {
+  id           String         @id @default(uuid()) @db.Uuid
+  applicantId  String         @map("applicant_id") @db.Uuid
+  applicant    User           @relation("ApprovalApplicant", fields: [applicantId], references: [id], onDelete: Cascade)
+  reviewerId   String?        @map("reviewer_id") @db.Uuid
+  reviewer     User?          @relation("ApprovalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  declaredRole LeadershipRole @map("declared_role")
+  status       ApprovalStatus @default(pending)
+  notes        String?
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  reviewedAt   DateTime?      @map("reviewed_at") @db.Timestamptz
+
+  @@index([applicantId])
+  @@index([status])
+  @@map("leader_approvals")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Announcements
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Announcement {
+  id       String            @id @default(uuid()) @db.Uuid
+  senderId String?           @map("sender_id") @db.Uuid
+  sender   User?             @relation("AnnouncementSender", fields: [senderId], references: [id], onDelete: SetNull)
+  title    String            @db.VarChar(200)
+  body     String
+  scope    AnnouncementScope @default(global)
+  // Polymorphic by design: points at an area, mission, stake or district
+  // depending on scope, so it carries no foreign key.
+  scopeId  String?           @map("scope_id") @db.Uuid
+  // Previously a TEXT column holding a JSON array that was parsed in JS.
+  audience String[]          @default(["all"])
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  recipients AnnouncementRecipient[]
+
+  @@index([senderId, createdAt(sort: Desc)])
+  @@map("announcements")
+}
+
+model AnnouncementRecipient {
+  id             String       @id @default(uuid()) @db.Uuid
+  announcementId String       @map("announcement_id") @db.Uuid
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String       @map("user_id") @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isRead         Boolean      @default(false) @map("is_read")
+  readAt         DateTime?    @map("read_at") @db.Timestamptz
+
+  @@unique([announcementId, userId])
+  @@index([userId, announcementId])
+  @@map("announcement_recipients")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Meetings
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Meeting {
+  id               String        @id @default(uuid()) @db.Uuid
+  hostId           String?       @map("host_id") @db.Uuid
+  host             User?         @relation("MeetingHost", fields: [hostId], references: [id], onDelete: SetNull)
+  title            String
+  description      String?
+  meetingCode      String        @unique @map("meeting_code") @db.VarChar(12)
+  // bcrypt hash, never the key itself.
+  joinKeyHash      String?       @map("join_key") @db.VarChar(100)
+  requiresApproval Boolean       @default(false) @map("requires_approval")
+  allowLinkJoin    Boolean       @default(true) @map("allow_link_join")
+  maxParticipants  Int           @default(1000) @map("max_participants")
+  status           MeetingStatus @default(waiting)
+  startedAt        DateTime?     @map("started_at") @db.Timestamptz
+  endedAt          DateTime?     @map("ended_at") @db.Timestamptz
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  participants MeetingParticipant[]
+  joinRequests MeetingJoinRequest[]
+
+  @@index([hostId])
+  @@index([status])
+  @@map("meetings")
+}
+
+model MeetingParticipant {
+  id          String      @id @default(uuid()) @db.Uuid
+  meetingId   String      @map("meeting_id") @db.Uuid
+  meeting     Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId      String      @map("user_id") @db.Uuid
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        MeetingRole @default(attendee)
+  joinedAt    DateTime    @default(now()) @map("joined_at") @db.Timestamptz
+  leftAt      DateTime?   @map("left_at") @db.Timestamptz
+  isMuted     Boolean     @default(false) @map("is_muted")
+  handRaised  Boolean     @default(false) @map("hand_raised")
+
+  @@unique([meetingId, userId])
+  @@index([meetingId])
+  @@index([userId])
+  @@map("meeting_participants")
+}
+
+model MeetingJoinRequest {
+  id          String            @id @default(uuid()) @db.Uuid
+  meetingId   String            @map("meeting_id") @db.Uuid
+  meeting     Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId      String            @map("user_id") @db.Uuid
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      JoinRequestStatus @default(pending)
+  requestedAt DateTime          @default(now()) @map("requested_at") @db.Timestamptz
+  resolvedAt  DateTime?         @map("resolved_at") @db.Timestamptz
+
+  @@unique([meetingId, userId])
+  @@index([meetingId, status])
+  @@map("meeting_join_requests")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contact requests and connections
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ContactRequest {
+  id             String               @id @default(uuid()) @db.Uuid
+  senderId       String               @map("sender_id") @db.Uuid
+  sender         User                 @relation("ContactRequestSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId    String               @map("recipient_id") @db.Uuid
+  recipient      User                 @relation("ContactRequestRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  introMessage   String?              @map("intro_message")
+  status         ContactRequestStatus @default(pending)
+  conversationId String?              @map("conversation_id") @db.Uuid
+  conversation   Conversation?        @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  respondedAt    DateTime?            @map("responded_at") @db.Timestamptz
+
+  connections ContactConnection[]
+
+  @@unique([senderId, recipientId])
+  @@index([senderId, status, createdAt(sort: Desc)])
+  @@index([recipientId, status, createdAt(sort: Desc)])
+  @@map("contact_requests")
+}
+
+// An accepted connection, stored once per pair. The two user ids are ordered
+// so a pair has exactly one row; migration 0001 adds a CHECK enforcing
+// user_low_id < user_high_id.
+model ContactConnection {
+  id         String          @id @default(uuid()) @db.Uuid
+  userLowId  String          @map("user_low_id") @db.Uuid
+  userLow    User            @relation("ConnectionLow", fields: [userLowId], references: [id], onDelete: Cascade)
+  userHighId String          @map("user_high_id") @db.Uuid
+  userHigh   User            @relation("ConnectionHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+  requestId  String?         @map("request_id") @db.Uuid
+  request    ContactRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([userLowId, userHighId])
+  @@map("contact_connections")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String?  @db.VarChar(255)
+  body      String?
+  data      Json?    @db.JsonB
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scriptures
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Scripture {
+  id        String   @id @default(uuid()) @db.Uuid
+  book      String   @db.VarChar(80)
+  chapter   Int
+  verse     Int
+  text      String
+  volume    String?  @db.VarChar(60)
+  // Display form such as "1 Nephi 3:7". Both seed scripts wrote this column
+  // even though no migration created it.
+  reference String?  @db.VarChar(120)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([book, chapter, verse])
+  @@index([volume])
+  @@map("scriptures")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// End-to-end encryption key directory
+//
+// These tables store public keys only. They are a key directory, not an
+// encryption implementation: nothing currently encrypts message bodies.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model E2eeIdentityKey {
+  userId            String   @id @map("user_id") @db.Uuid
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registrationId    Int      @map("registration_id")
+  identityKeyPublic String   @map("identity_key_public")
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("e2ee_identity_keys")
+}
+
+model E2eeSignedPreKey {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyId     Int      @map("key_id")
+  publicKey String   @map("public_key")
+  signature String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([userId, keyId])
+  @@index([userId])
+  @@map("e2ee_signed_prekeys")
+}
+
+model E2eeOneTimePreKey {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyId     Int      @map("key_id")
+  publicKey String   @map("public_key")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([userId, keyId])
+  @@index([userId, used])
+  @@map("e2ee_one_time_prekeys")
+}
+
+model E2eeQueuedMessage {
+  id          String   @id @default(uuid()) @db.Uuid
+  senderId    String?  @map("sender_id") @db.Uuid
+  sender      User?    @relation("E2eeQueueSender", fields: [senderId], references: [id], onDelete: SetNull)
+  recipientId String   @map("recipient_id") @db.Uuid
+  recipient   User     @relation("E2eeQueueRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  ciphertext  String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([recipientId])
+  @@map("e2ee_message_queue")
+}

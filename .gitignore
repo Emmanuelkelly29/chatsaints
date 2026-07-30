@@ -1,5 +1,69 @@
-node_modules
-# Keep environment variables out of version control
-.env
+# ── Dependencies ──────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
 
-/generated/prisma
+# ── Environment / Secrets (NEVER commit real values) ──────────────
+.env
+.env.*
+!.env.example
+
+# ── Private Keys & Certificates ───────────────────────────────────
+*.pem
+*.key
+*.jks
+*.p8
+*.p12
+*.pfx
+*.cer
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
+firebase-service-account.json
+*-service-account.json
+*-credentials.json
+
+# ── Generated code (recreate with `bun run db:generate`) ──────────
+apps/api/src/generated/
+
+# ── Build output ──────────────────────────────────────────────────
+dist/
+*.tsbuildinfo
+
+# ── Test output ───────────────────────────────────────────────────
+coverage/
+
+# ── Logs (may contain sensitive data) ─────────────────────────────
+logs/
+*.log
+
+# ── User uploads (never commit user content) ──────────────────────
+uploads/
+
+# ── Flutter ───────────────────────────────────────────────────────
+apps/mobile/.dart_tool/
+apps/mobile/.flutter-plugins
+apps/mobile/.flutter-plugins-dependencies
+apps/mobile/build/
+apps/mobile/.packages
+# NOTE: pubspec.lock IS committed on purpose. This is an application, not a
+# library, so the lockfile is what makes builds reproducible.
+
+# ── iOS / Android local build artifacts ───────────────────────────
+apps/mobile/ios/Pods/
+apps/mobile/ios/.symlinks/
+apps/mobile/ios/Flutter/Flutter.framework
+apps/mobile/ios/Flutter/Flutter.podspec
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/android/key.properties
+
+# ── OS ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo

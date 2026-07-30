@@ -1,0 +1,37 @@
+{
+  "name": "chatsaints",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ChatSaints monorepo: TypeScript API (apps/api) and Flutter client (apps/mobile)",
+  "packageManager": "bun@1.3.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "install:all": "bun install && cd apps/mobile && flutter pub get",
+
+    "dev": "cd apps/api && bun run dev",
+    "build": "cd apps/api && bun run build",
+    "start": "cd apps/api && bun run start",
+    "test": "cd apps/api && bun run test",
+    "lint": "cd apps/api && bun run lint",
+    "typecheck": "cd apps/api && bun run typecheck",
+    "check": "bun run typecheck && bun run lint && bun run test",
+
+    "db:migrate": "cd apps/api && bun run db:migrate",
+    "db:deploy": "cd apps/api && bun run db:deploy",
+    "db:generate": "cd apps/api && bun run db:generate",
+    "db:reset": "cd apps/api && bun run db:reset",
+    "db:seed": "cd apps/api && bun run db:seed",
+    "db:studio": "cd apps/api && bun run db:studio",
+
+    "mobile:dev": "cd apps/mobile && flutter run",
+    "mobile:test": "cd apps/mobile && flutter test",
+    "mobile:analyze": "cd apps/mobile && flutter analyze",
+    "mobile:build:ios": "cd apps/mobile && flutter build ipa",
+    "mobile:build:android": "cd apps/mobile && flutter build appbundle"
+  },
+  "workspaces": [
+    "apps/api"
+  ]
+}

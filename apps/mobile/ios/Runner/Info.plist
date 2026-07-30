@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>ChatSaints</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>chatsaints</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+
+	<!-- Privacy usage descriptions. Without these the app crashes the first
+	     time it touches the matching hardware, and App Store review rejects
+	     the build. Each string is shown verbatim in the system prompt, so it
+	     must state why ChatSaints needs the access. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ChatSaints needs the microphone so you can record voice notes and take part in voice and video calls.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ChatSaints needs the camera so you can take photos to share in chats and appear in video calls.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ChatSaints needs access to your photo library so you can share existing photos and videos in chats.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>ChatSaints needs permission to save photos and videos you receive to your photo library.</string>
+
+	<!-- WebRTC discovers call peers on the local network. iOS 14 and later
+	     require both of these before that is permitted. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ChatSaints uses your local network to connect voice and video calls directly when you and the other person are on the same network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dartobservatory._tcp</string>
+	</array>
+
+	<key>UIBackgroundModes</key>
+	<array>
+		<!-- Keeps call audio and voice-note playback alive when backgrounded. -->
+		<string>audio</string>
+		<!-- Lets Firebase Cloud Messaging wake the app for new messages. -->
+		<string>remote-notification</string>
+	</array>
+
+	<!-- Accurate only while transport security is the sole encryption in use.
+	     HTTPS alone is exempt. If end-to-end message encryption ever ships,
+	     this must be revisited along with the export compliance answers. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

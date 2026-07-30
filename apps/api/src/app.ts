@@ -27,6 +27,7 @@ import { statusesRouter } from "./features/statuses/routes";
 import { usersRouter } from "./features/users/routes";
 import { videoRouter } from "./features/video/routes";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { serializeResponse } from "./middleware/serializeResponse";
 
 /**
  * CORS with an actual allowlist.
@@ -76,6 +77,11 @@ export function createApp(): Express {
       }),
     );
   }
+
+  // Internally everything is camelCase; the wire stays snake_case, which is
+  // what the Flutter client reads. Registered before the routers so every
+  // response passes through it, including errors.
+  app.use(serializeResponse);
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", app: "ChatSaints", time: new Date().toISOString() });

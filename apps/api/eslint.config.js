@@ -49,6 +49,14 @@ export default tseslint.config(
   },
 
   {
+    // Seeds and one-off scripts are CLI tools. Printing progress is the point.
+    files: ["prisma/**/*.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
+
+  {
     // Tests may lean on loose typing for fixtures and mocks.
     files: ["**/*.test.ts", "**/__tests__/**/*.ts"],
     rules: {

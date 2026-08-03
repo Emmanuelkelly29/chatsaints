@@ -25,6 +25,8 @@
     "db:seed": "cd apps/api && bun run db:seed",
     "db:studio": "cd apps/api && bun run db:studio",
 
+    "mobile:emulators": "cd apps/mobile && flutter emulators",
+    "mobile:emulator": "cd apps/mobile && flutter emulators --launch Pixel_7",
     "mobile:dev": "cd apps/mobile && flutter run",
     "mobile:test": "cd apps/mobile && flutter test",
     "mobile:analyze": "cd apps/mobile && flutter analyze",

@@ -26,13 +26,19 @@ bun run db:seed                                        # scriptures + geography
 bun run dev                                            # API on :4000
 ```
 
-Then in a second terminal:
+Then in a second terminal, for the mobile app:
 
 ```bash
 cd apps/mobile
 flutter pub get
+
+bun run mobile:emulator   # boot an Android emulator FIRST, and wait for it
+adb devices               # confirm it attached
 flutter run
 ```
+
+Flutter does not start an emulator for you. If `adb devices` is empty,
+`flutter run` will tell you there are no devices. See step 8.
 
 The rest of this document explains each step and what to do when one fails.
 
@@ -206,13 +212,106 @@ not a fallback.
 
 ## 8. Run the mobile app
 
+### You must start the emulator yourself, every time
+
+**Flutter never launches an emulator for you.** `flutter run` only picks from
+devices that are *already* attached. There is no auto-start, and this catches
+everyone at least once.
+
+It is especially confusing because it can appear to work by accident: if Android
+Studio is open with the project, it often has an emulator running in the
+background, so `flutter run` finds one. Close Android Studio, or reboot, and the
+same command suddenly reports "No supported devices found".
+
+So it is always two steps.
+
+**Step 1, boot a device:**
+
 ```bash
-cd apps/mobile
-flutter pub get
-flutter run
+bun run mobile:emulators        # list your AVDs
+bun run mobile:emulator         # launch Pixel_7
 ```
 
-Or from the repository root: `bun run mobile:dev`
+`mobile:emulator` is hardcoded to an AVD named `Pixel_7`. If yours is called
+something else, either edit that script in the root `package.json` or run it
+directly:
+
+```bash
+flutter emulators --launch <your-avd-name>
+```
+
+The Device Manager play button in Android Studio does exactly the same thing.
+
+Wait for the home screen to appear. First boot after a reboot takes a minute or
+two.
+
+**Step 2, confirm it attached, then run:**
+
+```bash
+adb devices          # must list something, e.g. emulator-5554
+bun run mobile:dev
+```
+
+First time on a machine, run `flutter pub get` in `apps/mobile` first.
+
+### When Flutter says "No supported devices found"
+
+Check `adb devices` before anything else. It answers the question immediately:
+
+- **Empty list** means no emulator is running. Go back to step 1. This is the
+  cause almost every time.
+- **Lists a device, but Flutter does not see it** means the problem is Flutter,
+  not your emulator. That is the situation with iOS 27 below.
+
+`flutter devices` and `adb devices` are separate views of the world, and
+comparing them tells you which side is at fault.
+
+### Stopping Flutter from offering Chrome
+
+By default Flutter counts Chrome as a device, so it prompts you to choose even
+when an emulator is running. Turn the web target off once:
+
+```bash
+flutter config --no-enable-web
+```
+
+This is a **global Flutter setting, not a project one**. It removes Chrome from
+the device list in every Flutter project on that machine. Reverse it any time
+with `flutter config --enable-web`.
+
+On macOS, desktop is also offered. Same treatment if it gets in the way:
+
+```bash
+flutter config --no-enable-macos-desktop
+```
+
+With those off and one emulator running, `flutter run` picks it with no prompt.
+
+Being explicit always works regardless of any config:
+
+```bash
+flutter run -d emulator-5554
+```
+
+### Emulator tips
+
+A stale snapshot after an unclean shutdown can cause odd behaviour. Force a cold
+boot:
+
+```bash
+# macOS / Linux
+~/Library/Android/sdk/emulator/emulator -avd Pixel_7 -no-snapshot-load
+
+# Windows (PowerShell)
+& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -avd Pixel_7 -no-snapshot-load
+```
+
+Cold boot is slower. For normal use let it resume from snapshot, which is much
+faster.
+
+The Android SDK tools live at `~/Library/Android/sdk` on macOS and
+`%LOCALAPPDATA%\Android\Sdk` on Windows. `adb` is in `platform-tools/` and
+`emulator` is in `emulator/`. Adding both to your `PATH` saves a lot of typing.
 
 **The API must already be running.** The client finds it automatically:
 
@@ -326,6 +425,12 @@ video call tokens.
 
 ## Troubleshooting
 
+**`No supported devices found` / Flutter only offers Chrome or macOS**
+No emulator is running. Flutter never starts one for you. Run
+`bun run mobile:emulator`, wait for the home screen, check `adb devices` lists
+something, then run again. If it worked yesterday and not today, Android Studio
+was probably keeping an emulator alive in the background. See step 8.
+
 **`Invalid environment configuration`**
 The server tells you which variable is wrong. Usually `JWT_SECRET` is empty or
 too short. See step 4.
@@ -390,7 +495,7 @@ If it is genuinely a false positive, widen the allowlist in
 
 ## Project layout
 
-```
+```text
 apps/api/       TypeScript API. Express 5, Prisma 7, PostgreSQL, Redis, WebSocket
 apps/mobile/    Flutter client (Android, iOS, web)
 infra/          nginx config and the development docker-compose file
@@ -401,7 +506,7 @@ docs/           this document
 
 Inside `apps/api/src`:
 
-```
+```text
 config/      validated environment, Redis
 domain/      role hierarchy and permission tiers
 features/    one folder per area: routes.ts, service.ts, schemas.ts

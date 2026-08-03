@@ -134,8 +134,15 @@ export function serveContentTypeFor(fileName: string): string | null {
   return SERVE_CONTENT_TYPES.get(extension) ?? null;
 }
 
-/** 100 MB, as before. Enforced by multer, which aborts mid-stream. */
-const MAX_FILE_BYTES = 100 * 1024 * 1024;
+/**
+ * Upload ceiling, enforced by multer, which aborts mid-stream rather than
+ * buffering the whole thing first.
+ *
+ * Configurable via MEDIA_MAX_UPLOAD_MB. The old hard-coded value was 100 MB,
+ * which is far above anything a chat message needs and is mostly an invitation
+ * to fill a disk.
+ */
+const MAX_FILE_BYTES = env.MEDIA_MAX_UPLOAD_MB * 1024 * 1024;
 
 const storage = multer.diskStorage({
   destination: (req, _file, callback) => {
@@ -196,7 +203,9 @@ export function describeUploadFailure(error: unknown): Error {
   if (error instanceof multer.MulterError) {
     switch (error.code) {
       case "LIMIT_FILE_SIZE":
-        return badRequest("That file is larger than the 100 MB limit.");
+        return badRequest(
+          `That file is larger than the ${String(env.MEDIA_MAX_UPLOAD_MB)} MB limit.`,
+        );
       case "LIMIT_FILE_COUNT":
       case "LIMIT_UNEXPECTED_FILE":
         return badRequest("Send exactly one file, in a field named `file`.");

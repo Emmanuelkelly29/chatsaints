@@ -6,6 +6,7 @@ import { describeError, logger } from "../../lib/logger";
 import { authenticate, requireActive, requireUser } from "../../middleware/auth";
 import { badRequest } from "../../middleware/errorHandler";
 import { handle, withParams } from "../../middleware/validate";
+import { isProcessableImage, processImage, type ImageProfile } from "./images";
 import { fileParamsSchema } from "./schemas";
 import { authorizeFileAccess, describeUpload, type ResolvedFile } from "./service";
 import { describeUploadFailure, uploadSingleFile } from "./storage";
@@ -39,15 +40,29 @@ mediaRouter.post(
   authenticate,
   requireActive,
   receiveUpload,
-  handle((req, res) => {
+  handle(async (req, res) => {
     const file = req.file;
     if (!file) throw badRequest("Attach a file in a field named `file`.");
+
+    // `?purpose=avatar` applies the tighter profile-photo limits. Anything else,
+    // including nothing at all, is treated as chat media.
+    const profile: ImageProfile = req.query.purpose === "avatar" ? "avatar" : "message";
+
+    // Resize, re-encode and strip EXIF. Non-images and undecodable files pass
+    // through untouched; a processing failure never fails the upload.
+    if (isProcessableImage(file.filename)) {
+      const processed = await processImage(file.path, profile);
+      file.filename = processed.fileName;
+      file.path = processed.absolutePath;
+      file.size = processed.sizeBytes;
+    }
 
     const result = describeUpload(requireUser(req).id, file);
     logger.info("media uploaded", {
       ownerId: requireUser(req).id,
       contentType: result.contentType,
       sizeBytes: result.sizeBytes,
+      profile,
     });
     res.status(201).json(result);
   }),

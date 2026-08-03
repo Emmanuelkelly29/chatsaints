@@ -22,27 +22,31 @@ Supporting directories:
 The two applications share no code. They communicate only over HTTP and
 WebSocket, so each is developed and released independently.
 
-## Prerequisites
+## Setting up
 
-- [Bun](https://bun.sh) 1.3+ (package manager and runtime for the API)
-- PostgreSQL 16+ (Postgres.app or Homebrew both work)
-- Redis 7+
-- [Flutter](https://docs.flutter.dev/install) 3.44+ (only needed for `apps/mobile`)
+**New here? Read [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).** It is a
+step-by-step guide covering Windows, macOS and Linux, and it explains how to run
+the whole stack for free.
 
-## First-time setup
+The short version, if you already have Bun, Docker and Flutter:
 
 ```bash
-bun run install:all           # installs API deps and Flutter packages
-
-cp apps/api/.env.example apps/api/.env
-#   then fill in DATABASE_URL, JWT_SECRET and SMTP_* with real values
-
-bun run db:migrate            # creates the schema and generates the client
-bun run db:seed               # loads scripture data and reference geography
+docker compose -f infra/docker-compose.dev.yml up -d   # Postgres + Redis
+cp apps/api/.env.example apps/api/.env                 # then set JWT_SECRET
+bun install
+bun run db:migrate                                     # schema + Prisma client
+bun run db:seed                                        # scriptures + geography
+bun run dev                                            # API on :4000
 ```
 
-The API refuses to start if a required environment variable is missing, so a
-misconfigured `.env` fails immediately and loudly rather than at first request.
+`JWT_SECRET` is the only value you have to fill in. Generate one with
+`openssl rand -hex 64`. The API refuses to start if a required variable is
+missing or malformed, so a misconfigured `.env` fails loudly at boot rather than
+on the first request.
+
+**Leave `SMTP_*` empty.** In development, verification codes are printed to the
+terminal running the API instead of being emailed, so nothing needs a mail
+provider. Codes are never returned in an HTTP response.
 
 ## Everyday commands
 

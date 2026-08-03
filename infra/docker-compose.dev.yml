@@ -1,0 +1,59 @@
+# Local development dependencies ONLY: PostgreSQL and Redis.
+#
+# This deliberately does NOT run the API or the mobile app. You run those
+# yourself with `bun run dev`, so you keep reload, breakpoints and logs.
+#
+# The point of this file is that a new machine, on any OS, gets a matching
+# database and cache with one command and no install steps. It is the shortest
+# path to a working environment on Windows in particular.
+#
+#   Start:   docker compose -f infra/docker-compose.dev.yml up -d
+#   Stop:    docker compose -f infra/docker-compose.dev.yml down
+#   Reset:   docker compose -f infra/docker-compose.dev.yml down -v   (deletes data)
+#
+# The credentials below are local-only fixtures. They are intentionally boring
+# and must never be reused anywhere that is reachable from the internet.
+
+name: chatsaints-dev
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: chatsaints_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chatsaints
+      POSTGRES_PASSWORD: chatsaints
+      POSTGRES_DB: chatsaints
+    ports:
+      # Host 5432. If you already run Postgres locally, change the LEFT number
+      # here and in DATABASE_URL rather than stopping your existing server.
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatsaints -d chatsaints"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: chatsaints_redis
+    restart: unless-stopped
+    # Appendonly keeps one-time codes across a container restart. Losing them is
+    # harmless, but it saves re-requesting a code mid-test.
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -5,9 +5,8 @@ import { describeError, logger } from "../../lib/logger";
 import { normalizeText, phoneVariants } from "../../lib/normalize";
 import { prisma } from "../../lib/prisma";
 import { signAccessToken } from "../../lib/tokens";
-import { isSmtpConfigured } from "../../config/env";
 import { conflict, forbidden, HttpError, unauthorized } from "../../middleware/errorHandler";
-import { sendOtpEmail } from "./mailer";
+import { canDeliverEmail, sendOtpEmail } from "./mailer";
 import { consumeOtp, issueOtp, otpFailureMessage, type OtpPurpose } from "./otp";
 import type { LoginInput, RegisterInput } from "./schemas";
 
@@ -135,7 +134,9 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   // Fail before writing anything. Registration cannot complete without a
   // deliverable code, so creating the account first would leave an
   // unverifiable row behind every time delivery was impossible.
-  if (!isSmtpConfigured) {
+  // In development this is satisfied by the terminal transport, so registration
+  // works with no mail provider. In production it requires real SMTP.
+  if (!canDeliverEmail) {
     throw new HttpError(
       503,
       "Registration is unavailable because email delivery is not configured on this server.",

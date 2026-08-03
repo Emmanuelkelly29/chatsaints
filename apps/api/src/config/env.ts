@@ -44,6 +44,17 @@ const EnvSchema = z.object({
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
 
+  // ── Media processing ──────────────────────────────────────────
+  // Images are resized and re-encoded once at upload. Every uploaded photo is
+  // then smaller on disk and cheaper to fetch on every later view, which is the
+  // difference between free local development and a storage bill later.
+  MEDIA_MAX_UPLOAD_MB: z.coerce.number().int().positive().default(50),
+  MEDIA_IMAGE_MAX_DIMENSION: z.coerce.number().int().positive().default(1920),
+  MEDIA_IMAGE_QUALITY: z.coerce.number().int().min(1).max(100).default(80),
+  // Avatars are displayed small, so they are capped much harder.
+  MEDIA_AVATAR_MAX_DIMENSION: z.coerce.number().int().positive().default(512),
+  MEDIA_AVATAR_QUALITY: z.coerce.number().int().min(1).max(100).default(80),
+
   FIREBASE_SERVICE_ACCOUNT_PATH: z.string().optional(),
   APNS_KEY_ID: z.string().optional(),
   APNS_TEAM_ID: z.string().optional(),

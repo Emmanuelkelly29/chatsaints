@@ -1,7 +1,7 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
-import { isTest } from "../../config/env";
+import { isProduction, isTest } from "../../config/env";
 import { authenticate, requireUser } from "../../middleware/auth";
 import { withBody } from "../../middleware/validate";
 import {
@@ -25,15 +25,27 @@ const noop = (_req: unknown, _res: unknown, next: () => void) => {
   next();
 };
 
+const WINDOW_MS = 15 * 60 * 1000;
+
 /**
- * Credential endpoints get a tighter budget than the rest of the API. The old
- * limit was 50 attempts per 15 minutes across the whole /api/auth surface.
+ * Budgets are deliberately different in development.
+ *
+ * Production values protect real accounts. Development values have to survive
+ * someone iterating on a signup form, where a handful of typos is normal and
+ * being locked out for fifteen minutes is not a security win, just lost time.
+ */
+const CREDENTIAL_LIMIT = isProduction ? 20 : 200;
+const CODE_REQUEST_LIMIT = isProduction ? 5 : 100;
+
+/**
+ * Sign-in attempts. Failures deliberately DO count, because counting them is
+ * the entire point: this is what makes credential stuffing expensive.
  */
 const credentialLimiter = isTest
   ? noop
   : rateLimit({
-      windowMs: 15 * 60 * 1000,
-      limit: 20,
+      windowMs: WINDOW_MS,
+      limit: CREDENTIAL_LIMIT,
       standardHeaders: "draft-7",
       legacyHeaders: false,
       message: { error: "Too many attempts. Please try again later." },
@@ -41,16 +53,24 @@ const credentialLimiter = isTest
 
 /**
  * Requesting a code is more expensive than checking one, because it sends mail.
- * Per-account attempt limiting lives in the OTP store, which covers the case of
- * an attacker rotating source IPs to get past a per-IP limiter.
+ *
+ * `skipFailedRequests` matters here. This limiter guards the cost of sending
+ * email, so only a request that actually sent something should count. Without
+ * it the limiter ran before validation, so five rejected bodies exhausted the
+ * budget without a single message being sent, and the caller was locked out of
+ * an action they had never successfully performed.
+ *
+ * Per-account attempt limiting lives in the OTP store, which covers an attacker
+ * rotating source IPs to get past a per-IP limiter.
  */
 const codeRequestLimiter = isTest
   ? noop
   : rateLimit({
-      windowMs: 15 * 60 * 1000,
-      limit: 5,
+      windowMs: WINDOW_MS,
+      limit: CODE_REQUEST_LIMIT,
       standardHeaders: "draft-7",
       legacyHeaders: false,
+      skipFailedRequests: true,
       message: { error: "Too many code requests. Please try again later." },
     });
 

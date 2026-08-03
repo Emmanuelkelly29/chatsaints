@@ -27,6 +27,7 @@ import { statusesRouter } from "./features/statuses/routes";
 import { usersRouter } from "./features/users/routes";
 import { videoRouter } from "./features/video/routes";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { requestLogger } from "./middleware/requestLogger";
 import { serializeResponse } from "./middleware/serializeResponse";
 
 /**
@@ -61,6 +62,10 @@ export function createApp(): Express {
 
   app.use(helmet());
   app.use(cors(corsOptions));
+
+  // Before the rate limiters, so their 429s are logged too. They write their
+  // own response and never reach the error handler.
+  app.use(requestLogger);
 
   // 1 MB is ample for JSON. Media goes through multipart upload, not base64 in
   // a request body, so the old 10 MB ceiling only widened the DoS surface.
